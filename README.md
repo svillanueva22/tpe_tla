@@ -1,6 +1,6 @@
 [![✗](https://img.shields.io/badge/Release-v2.0.0-ffb600.svg?style=for-the-badge)](https://github.com/svillanueva22/tpe_tla/releases)
 
-[![✗](https://github.com/sillanueva22/tpe_tla/actions/workflows/pipeline.yaml/badge.svg?branch=production)](https://github.com/svillanueva/tpe_tla/actions/workflows/pipeline.yaml)
+[![✗](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml/badge.svg?branch=production)](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml)
 
 # Flex-Bison-Compiler
 
@@ -20,11 +20,11 @@ A base compiler example, developed with Flex and Bison.
 
 Set the following environment variables to control and configure the behaviour of the application:
 
-| Name                  | Default | Description                                                                                                                                                           |
-| :-------------------- | :-----: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ENVIRONMENT`         | `Local` | The active environment name. The available environments are: `Local`, `Development` and `Production`.                                                                 |
-| `LOG_IGNORED_LEXEMES` | `true`  | When `true`, logs all of the ignored lexemes found with Flex at `DEBUGGING` level. To remove those logs from the console output set it to `false`.                    |
-| `LOGGING_LEVEL`       | `ALL`   | The minimum level to log in the console output. From lower to higher, the available levels are: `ALL`, `DEBUGGING`, `INFORMATION`, `WARNING`, `ERROR` and `CRITICAL`. |
+| Name                  | Default | Description                                                                                                                                                     |
+| :-------------------- | :-----: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ENVIRONMENT`         | `Local` | The active environment name. The available environments are: `Local`, `Development` and `Production`.                                                           |
+| `LOG_IGNORED_LEXEMES` | `true`  | When `true`, logs all of the ignored lexemes found with Flex at `DEBUGGING` level. To remove those logs from the console output set it to `false`.              |
+| `LOGGING_LEVEL`       | `ALL`   | The minimum level to log in the console output. From lower to higher, the available levels are: `ALL`, `DEBUGGING`, `INFORMATION`, `WARNING`, `ERROR` and `CRITICAL`|
 
 _Docker Compose_ can read the variables from an `.env` file too (see `compose.yaml` file).
 
