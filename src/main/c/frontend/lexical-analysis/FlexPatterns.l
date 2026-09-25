@@ -14,17 +14,20 @@
  * @see https://westes.github.io/flex/manual/Definitions-Section.html#Definitions-Section
  */
 
-extern CompilationStatus ArithmeticOperatorLexemeAction(TokenLabel label);
-extern CompilationStatus EnterImportExpressionLexemeAction(FlexContext context);
+extern CompilationStatus DateLexemeAction();
 extern CompilationStatus EnterMultilineCommentLexemeAction(FlexContext context);
 extern CompilationStatus EOFLexemeAction();
+extern CompilationStatus IdentifierLexemeAction();
 extern CompilationStatus IgnoredLexemeAction();
 extern CompilationStatus IntegerLexemeAction();
-extern CompilationStatus LeaveImportExpressionLexemeAction();
+extern CompilationStatus KeywordLexemeAction(TokenLabel label);
 extern CompilationStatus LeaveMultilineCommentLexemeAction();
-extern CompilationStatus ParenthesisLexemeAction(TokenLabel label);
-extern CompilationStatus SubexpressionLexemeAction();
+extern CompilationStatus MonthLexemeAction(const int month);
+extern CompilationStatus OperatorLexemeAction(TokenLabel label);
+extern CompilationStatus PunctuationLexemeAction(TokenLabel label);
+extern CompilationStatus StringLexemeAction();
 extern CompilationStatus UnknownLexemeAction();
+extern CompilationStatus WeekdayLexemeAction(const Weekday weekday);
 
 %}
 
@@ -33,7 +36,6 @@ extern CompilationStatus UnknownLexemeAction();
  *
  * @see https://westes.github.io/flex/manual/Start-Conditions.html
  */
-%x IMPORT_EXPRESSION
 %x MULTILINE_COMMENT
 
 /**
@@ -42,6 +44,10 @@ extern CompilationStatus UnknownLexemeAction();
  * @see https://westes.github.io/flex/manual/Matching.html
  * @see https://westes.github.io/flex/manual/Patterns.html
  */
+blank				[ \t]+
+digit				[0-9]
+identifier			[A-Za-z_][A-Za-z0-9_]*
+utf8				[\xC2-\xF4][\x80-\xBF]{1,3}
 whitespace			[[:space:]]+
 
 %%
@@ -54,30 +60,151 @@ whitespace			[[:space:]]+
 
 %}
 
-"{"									{ return EnterImportExpressionLexemeAction(IMPORT_EXPRESSION); }
-<IMPORT_EXPRESSION>[^{}]+			{ return SubexpressionLexemeAction(); }
-<IMPORT_EXPRESSION>"}"				{ return LeaveImportExpressionLexemeAction(); }
-<IMPORT_EXPRESSION>.				{ return UnknownLexemeAction(); }
+"/*"											{ return EnterMultilineCommentLexemeAction(MULTILINE_COMMENT); }
+<MULTILINE_COMMENT>"*/"							{ return LeaveMultilineCommentLexemeAction(); }
+<MULTILINE_COMMENT>[^*]+						{ return IgnoredLexemeAction(); }
+<MULTILINE_COMMENT>.							{ return IgnoredLexemeAction(); }
 
-"/*"								{ return EnterMultilineCommentLexemeAction(MULTILINE_COMMENT); }
-<MULTILINE_COMMENT>"*/"				{ return LeaveMultilineCommentLexemeAction(); }
-<MULTILINE_COMMENT>[^*]+			{ return IgnoredLexemeAction(); }
-<MULTILINE_COMMENT>.				{ return IgnoredLexemeAction(); }
+"//"[^\n]*										{ return IgnoredLexemeAction(); }
 
-"-"									{ return ArithmeticOperatorLexemeAction(SUB); }
-"*"									{ return ArithmeticOperatorLexemeAction(MUL); }
-"/"									{ return ArithmeticOperatorLexemeAction(DIV); }
-"+"									{ return ArithmeticOperatorLexemeAction(ADD); }
+	/* Declarations. */
 
-"("									{ return ParenthesisLexemeAction(OPEN_PARENTHESIS); }
-")"									{ return ParenthesisLexemeAction(CLOSE_PARENTHESIS); }
+"federation"									{ return KeywordLexemeAction(FEDERATION); }
+"league"										{ return KeywordLexemeAction(LEAGUE); }
+"tier"											{ return KeywordLexemeAction(TIER); }
+"tournament"									{ return KeywordLexemeAction(TOURNAMENT); }
+"template"										{ return KeywordLexemeAction(TEMPLATE); }
+"use"											{ return KeywordLexemeAction(USE); }
 
-[[:digit:]]+						{ return IntegerLexemeAction(); }
+	/* Tournament structure. */
 
-{whitespace}						{ return IgnoredLexemeAction(); }
-.									{ return UnknownLexemeAction(); }
+"teams"											{ return KeywordLexemeAction(TEAMS); }
+"format"										{ return KeywordLexemeAction(FORMAT); }
+"round"{blank}"robin"							{ return KeywordLexemeAction(ROUND_ROBIN); }
+"round-robin"									{ return KeywordLexemeAction(ROUND_ROBIN); }
+"knockout"										{ return KeywordLexemeAction(KNOCKOUT); }
+"groups"										{ return KeywordLexemeAction(GROUPS); }
+"advance"										{ return KeywordLexemeAction(ADVANCE); }
+"then"											{ return KeywordLexemeAction(THEN); }
+"single"										{ return KeywordLexemeAction(SINGLE); }
+"double"										{ return KeywordLexemeAction(DOUBLE); }
 
-<<EOF>>								{ return EOFLexemeAction(); }
+	/* Schedule and periodicity. */
+
+"schedule"										{ return KeywordLexemeAction(SCHEDULE); }
+"starting"										{ return KeywordLexemeAction(STARTING); }
+"every"											{ return KeywordLexemeAction(EVERY); }
+"day"s?											{ return KeywordLexemeAction(DAY); }
+"week"s?										{ return KeywordLexemeAction(WEEK); }
+"year"s?										{ return KeywordLexemeAction(YEAR); }
+"season"s?										{ return KeywordLexemeAction(SEASON); }
+
+"monday"										{ return WeekdayLexemeAction(MONDAY); }
+"tuesday"										{ return WeekdayLexemeAction(TUESDAY); }
+"wednesday"										{ return WeekdayLexemeAction(WEDNESDAY); }
+"thursday"										{ return WeekdayLexemeAction(THURSDAY); }
+"friday"										{ return WeekdayLexemeAction(FRIDAY); }
+"saturday"										{ return WeekdayLexemeAction(SATURDAY); }
+"sunday"										{ return WeekdayLexemeAction(SUNDAY); }
+
+"january"										{ return MonthLexemeAction(1); }
+"february"										{ return MonthLexemeAction(2); }
+"march"											{ return MonthLexemeAction(3); }
+"april"											{ return MonthLexemeAction(4); }
+"may"											{ return MonthLexemeAction(5); }
+"june"											{ return MonthLexemeAction(6); }
+"july"											{ return MonthLexemeAction(7); }
+"august"										{ return MonthLexemeAction(8); }
+"september"										{ return MonthLexemeAction(9); }
+"october"										{ return MonthLexemeAction(10); }
+"november"										{ return MonthLexemeAction(11); }
+"december"										{ return MonthLexemeAction(12); }
+
+	/* Table zones and team selection. */
+
+"zone"											{ return KeywordLexemeAction(ZONE); }
+"zones"											{ return KeywordLexemeAction(ZONES); }
+"champion"										{ return KeywordLexemeAction(CHAMPION); }
+"relegate"										{ return KeywordLexemeAction(RELEGATE); }
+"promote"										{ return KeywordLexemeAction(PROMOTE); }
+"qualify"										{ return KeywordLexemeAction(QUALIFY); }
+"first"											{ return KeywordLexemeAction(FIRST); }
+"last"											{ return KeywordLexemeAction(LAST); }
+"top"											{ return KeywordLexemeAction(TOP); }
+"bottom"										{ return KeywordLexemeAction(BOTTOM); }
+"position"s?									{ return KeywordLexemeAction(POSITION); }
+"by"											{ return KeywordLexemeAction(BY); }
+"average"										{ return KeywordLexemeAction(AVERAGE); }
+"winner"										{ return KeywordLexemeAction(WINNER); }
+
+	/* Points, results and tiebreakers (optional extension). */
+
+"points"										{ return KeywordLexemeAction(POINTS); }
+"win"											{ return KeywordLexemeAction(WIN); }
+"draw"											{ return KeywordLexemeAction(DRAW); }
+"loss"											{ return KeywordLexemeAction(LOSS); }
+"results"										{ return KeywordLexemeAction(RESULTS); }
+"penalties"										{ return KeywordLexemeAction(PENALTIES); }
+"tiebreak"										{ return KeywordLexemeAction(TIEBREAK); }
+"goal"{blank}"difference"						{ return KeywordLexemeAction(GOAL_DIFFERENCE); }
+"goals"{blank}"for"								{ return KeywordLexemeAction(GOALS_FOR); }
+"goals"{blank}"against"							{ return KeywordLexemeAction(GOALS_AGAINST); }
+"head"{blank}"to"{blank}"head"					{ return KeywordLexemeAction(HEAD_TO_HEAD); }
+"away"{blank}"goals"							{ return KeywordLexemeAction(AWAY_GOALS); }
+"wins"											{ return KeywordLexemeAction(WINS); }
+
+	/* Federation: procedures, movement and calendar. */
+
+"cycle"											{ return KeywordLexemeAction(CYCLE); }
+"movement"										{ return KeywordLexemeAction(MOVEMENT); }
+"calendar"										{ return KeywordLexemeAction(CALENDAR); }
+"host"											{ return KeywordLexemeAction(HOST); }
+"in"											{ return KeywordLexemeAction(IN); }
+"before"										{ return KeywordLexemeAction(BEFORE); }
+"after"											{ return KeywordLexemeAction(AFTER); }
+"if"											{ return KeywordLexemeAction(IF); }
+"else"											{ return KeywordLexemeAction(ELSE); }
+"otherwise"										{ return KeywordLexemeAction(OTHERWISE); }
+"as"											{ return KeywordLexemeAction(AS); }
+"from"											{ return KeywordLexemeAction(FROM); }
+"to"											{ return KeywordLexemeAction(TO); }
+"of"											{ return KeywordLexemeAction(OF); }
+"and"											{ return KeywordLexemeAction(AND); }
+"or"											{ return KeywordLexemeAction(OR); }
+"not"											{ return KeywordLexemeAction(NOT); }
+
+	/* Operators. */
+
+"+"												{ return OperatorLexemeAction(ADD); }
+"-"												{ return OperatorLexemeAction(SUB); }
+"="												{ return OperatorLexemeAction(ASSIGN); }
+"=="											{ return OperatorLexemeAction(EQUAL); }
+"!="											{ return OperatorLexemeAction(NOT_EQUAL); }
+"<"												{ return OperatorLexemeAction(LESS_THAN); }
+"<="											{ return OperatorLexemeAction(LESS_THAN_OR_EQUAL); }
+">"												{ return OperatorLexemeAction(GREATER_THAN); }
+">="											{ return OperatorLexemeAction(GREATER_THAN_OR_EQUAL); }
+
+	/* Punctuation. */
+
+"{"												{ return PunctuationLexemeAction(OPEN_BRACE); }
+"}"												{ return PunctuationLexemeAction(CLOSE_BRACE); }
+"("												{ return PunctuationLexemeAction(OPEN_PARENTHESIS); }
+")"												{ return PunctuationLexemeAction(CLOSE_PARENTHESIS); }
+","												{ return PunctuationLexemeAction(COMMA); }
+
+	/* Literals. */
+
+{digit}{4}"-"{digit}{2}"-"{digit}{2}			{ return DateLexemeAction(); }
+{digit}+										{ return IntegerLexemeAction(); }
+\"([^"\\\n]|\\[\\"])*\"							{ return StringLexemeAction(); }
+{identifier}									{ return IdentifierLexemeAction(); }
+
+{whitespace}									{ return IgnoredLexemeAction(); }
+{utf8}											{ return UnknownLexemeAction(); }
+.												{ return UnknownLexemeAction(); }
+
+<<EOF>>											{ return EOFLexemeAction(); }
 
 %%
 
