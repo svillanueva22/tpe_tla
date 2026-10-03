@@ -1,0 +1,5 @@
+tournament Bisiesto {
+    teams { "Racing", "river", "Boca", "Independiente" }
+    format round robin
+    schedule starting 2028-02-29 every day
+}

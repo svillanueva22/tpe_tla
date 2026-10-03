@@ -1,0 +1,42 @@
+// Ejemplo 3: federación con periodicidad, procedimientos y calendario multi-año.
+federation FIFA {
+    template points Standard { win = 3, draw = 1, loss = 0 }
+
+    tournament ClubWorldCup {
+        teams { "Real Madrid", "river Plate", "Al Ahly", "Auckland City" }
+        format round robin
+        schedule starting december 10 every 3 days
+        use points Standard
+        zone Campeon champion first
+    }
+
+    tournament WorldCup {
+        teams {
+            "Argentina", "Francia", "Brasil", "España",
+            "Alemania", "Inglaterra", "Países Bajos", "Portugal"
+        }
+        format groups of 4 advance 2 then knockout double
+        schedule starting june 8 every 4 days
+    }
+
+    tournament Qualifiers {
+        teams { "Argentina", "Uruguay", "Chile", "Colombia" }
+        format round robin double
+        schedule starting september 1 every week
+        use points Standard
+    }
+
+    cycle Mundial(edition) {
+        host Qualifiers in edition - 1
+        host WorldCup in edition
+    }
+
+    calendar from 2026 to 2034 {
+        every year {
+            host ClubWorldCup
+        }
+        every 4 years starting 2026 as Y {
+            Mundial(Y)
+        }
+    }
+}

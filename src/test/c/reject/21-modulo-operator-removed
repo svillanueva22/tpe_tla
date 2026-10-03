@@ -1,0 +1,9 @@
+federation FIFA {
+    calendar from 2026 to 2034 {
+        every year as Y {
+            if Y - 2026 mod 4 == 0 {
+                host Copa
+            }
+        }
+    }
+}

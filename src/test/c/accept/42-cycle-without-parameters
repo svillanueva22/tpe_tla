@@ -1,0 +1,16 @@
+federation AFA {
+    tournament Copa {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format knockout
+        schedule starting may 1 every week
+    }
+
+    cycle Temporada() {
+        host Copa
+    }
+    calendar from 2026 to 2028 {
+        every year {
+            Temporada()
+        }
+    }
+}

@@ -1,0 +1,16 @@
+federation FIFA {
+    tournament Copa {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format knockout
+        schedule starting may 1 every week
+    }
+
+    cycle Mundial(edition) {
+        host Copa in edition
+    }
+    calendar from 2026 to 2030 {
+        every year as Y {
+            Mundial(Y, Y + 1)
+        }
+    }
+}

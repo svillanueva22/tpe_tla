@@ -1,0 +1,10 @@
+tournament Mundial {
+    teams {
+        "Argentina", "Francia", "Brasil", "España", "Alemania", "Inglaterra", "Países Bajos", "Portugal",
+        "Uruguay", "Croacia", "Bélgica", "Italia", "México", "Estados Unidos", "Japón", "Corea del Sur",
+        "Marruecos", "Senegal", "Suiza", "Dinamarca", "Colombia", "Ecuador", "Australia", "Canadá",
+        "Polonia", "Serbia", "Suecia", "Nigeria", "Egipto", "Irán", "Arabia Saudita", "Chile"
+    }
+    format groups of 4 advance 2 then knockout single
+    schedule starting 2026-06-11 every 3 days
+}

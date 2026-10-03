@@ -1,0 +1,5 @@
+tournament Copa {
+    teams { "Racing", "river", "Boca", "Independiente", "Huracán", "Lanús" }
+    format knockout
+    schedule starting 2026-05-01 every week
+}

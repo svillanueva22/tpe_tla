@@ -1,0 +1,6 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    results {
+        "Racing" 99999999999-0 "river"
+    }
+}

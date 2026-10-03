@@ -1,0 +1,10 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "river" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    movement {
+        relegate last from Primera to Fantasma
+    }
+}

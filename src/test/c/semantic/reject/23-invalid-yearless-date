@@ -1,0 +1,7 @@
+federation AFA {
+    tournament Apertura {
+        teams { "Racing", "river" }
+        format round robin
+        schedule starting february 30 every sunday
+    }
+}

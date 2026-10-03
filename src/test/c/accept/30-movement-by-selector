@@ -1,0 +1,17 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    league Nacional tier 2 {
+        teams { "Colón", "Banfield", "Quilmes", "Chacarita" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    movement {
+        relegate bottom 2 by average of last 3 seasons from Primera to Nacional
+        promote top 1 from Nacional to Primera
+        promote position 2 from Nacional to Primera
+    }
+}

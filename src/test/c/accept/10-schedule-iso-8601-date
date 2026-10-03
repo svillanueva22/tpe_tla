@@ -1,0 +1,5 @@
+tournament Apertura {
+    teams { "Racing", "river", "Boca", "Independiente" }
+    format round robin
+    schedule starting 2026-12-31 every 7 days
+}

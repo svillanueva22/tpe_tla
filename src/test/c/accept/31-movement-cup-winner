@@ -1,0 +1,22 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    league Nacional tier 2 {
+        teams { "Colón", "Banfield", "Quilmes", "Chacarita", "Atlanta", "Temperley" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    tournament Reducido {
+        teams from Nacional positions 2 to 5
+        format knockout double
+        schedule starting november 20 every week
+    }
+    movement {
+        promote first from Nacional to Primera
+        promote winner of Reducido from Nacional to Primera
+        relegate bottom 2 from Primera to Nacional
+    }
+}

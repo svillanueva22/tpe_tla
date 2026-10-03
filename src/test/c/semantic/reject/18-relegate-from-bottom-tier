@@ -1,0 +1,15 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "Riber" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    league Nacional tier 2 {
+        teams { "Colón", "Banfield" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    movement {
+        relegate last from Nacional to Primera
+    }
+}

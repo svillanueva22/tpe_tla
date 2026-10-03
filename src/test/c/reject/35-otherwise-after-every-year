@@ -1,0 +1,9 @@
+federation FIFA {
+    calendar from 2026 to 2034 {
+        every year {
+            host Copa
+        } otherwise {
+            host Amistoso
+        }
+    }
+}

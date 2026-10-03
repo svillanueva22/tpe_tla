@@ -1,0 +1,23 @@
+federation Conmebol {
+    template points Standard { win = 3, draw = 1, loss = 0 }
+    league Primera tier 1 {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin double
+        schedule starting february 1 every sunday
+        use points Standard
+    }
+    tournament Libertadores {
+        teams {
+            "river", "Boca", "Flamengo", "Palmeiras",
+            "Peñarol", "Nacional", "Olimpia", "Colo-Colo"
+        }
+        format groups of 4 advance 2 then knockout double
+        schedule starting april 1 every wednesday
+    }
+    calendar from 2026 to 2027 {
+        every year {
+            host Primera
+            host Libertadores
+        }
+    }
+}

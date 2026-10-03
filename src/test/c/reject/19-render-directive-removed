@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+}
+render Apertura as xlsx to "apertura.xlsx"

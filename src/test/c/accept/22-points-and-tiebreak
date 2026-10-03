@@ -1,0 +1,7 @@
+tournament Apertura {
+    teams { "Racing", "river", "Boca", "Independiente" }
+    format round robin
+    schedule starting 2026-03-01 every sunday
+    points { win = 3, draw = 1, loss = 0 }
+    tiebreak by goal difference, goals for, goals against, head to head, wins, away goals
+}

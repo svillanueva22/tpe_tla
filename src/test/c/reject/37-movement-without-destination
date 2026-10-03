@@ -1,0 +1,5 @@
+federation AFA {
+    movement {
+        relegate last from Primera
+    }
+}

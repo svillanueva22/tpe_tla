@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+}
+/* Este comentario nunca se cierra.

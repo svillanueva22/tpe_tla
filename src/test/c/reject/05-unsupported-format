@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    format swiss
+}

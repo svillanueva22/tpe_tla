@@ -1,0 +1,20 @@
+federation FIFA {
+    tournament Copa {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format knockout
+        schedule starting may 1 every week
+    }
+
+    tournament Amistosos {
+        teams { "Argentina", "Brasil" }
+        format knockout
+        schedule starting march 20 every day
+    }
+    calendar from 2026 to 2034 {
+        every 2 years {
+            host Copa
+        } otherwise {
+            host Amistosos
+        }
+    }
+}

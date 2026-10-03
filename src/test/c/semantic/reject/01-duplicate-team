@@ -1,0 +1,5 @@
+tournament Apertura {
+    teams { "Racing", "river", "Racing" }
+    format round robin
+    schedule starting 2026-03-01 every sunday
+}

@@ -1,0 +1,11 @@
+tournament Primera {
+    teams {
+        "Argentinos", "Banfield", "Barracas Central", "Belgrano", "Boca", "Central Córdoba",
+        "Defensa y Justicia", "Estudiantes", "Gimnasia", "Godoy Cruz", "Huracán", "Independiente",
+        "Instituto", "Lanús", "Newell's", "Platense", "Racing", "river", "Rosario Central", "San Lorenzo"
+    }
+    format round robin double
+    schedule starting 2026-01-25 every sunday
+    zone Campeon champion first
+    zone Descenso relegate bottom 2
+}

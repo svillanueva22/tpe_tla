@@ -1,0 +1,17 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin
+        schedule starting february 1 every sunday
+    }
+    league Nacional tier 2 {
+        teams { "Colón", "Banfield", "Quilmes", "Chacarita" }
+        format round robin
+        schedule starting february 1 every saturday
+    }
+    league PrimeraB tier 3 {
+        teams { "Atlanta", "Temperley", "Almagro", "Estudiantes BA" }
+        format round robin
+        schedule starting february 2 every monday
+    }
+}

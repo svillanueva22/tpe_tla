@@ -1,0 +1,22 @@
+template points Standard { win = 3, draw = 1, loss = 0 }
+
+template zones Basic {
+    zone Campeon champion first
+    zone Descenso relegate last
+}
+
+tournament Apertura {
+    teams { "Racing", "river", "Boca", "Independiente" }
+    format round robin
+    schedule starting 2026-02-01 every sunday
+    use points Standard
+    use zones Basic
+}
+
+tournament Clausura {
+    teams { "Racing", "river", "Boca", "Independiente", "Huracán", "Lanús" }
+    format round robin
+    schedule starting 2026-07-15 every sunday
+    use points Standard
+    use zones Basic
+}

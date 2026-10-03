@@ -1,0 +1,9 @@
+// Ejemplo 2: copa con fase de grupos y eliminación directa.
+tournament CopaAmerica {
+    teams {
+        "Argentina", "Brasil", "Uruguay", "Chile",
+        "Colombia", "Perú", "Ecuador", "Paraguay"
+    }
+    format groups of 4 advance 2 then knockout
+    schedule starting 2026-06-10 every 3 days
+}

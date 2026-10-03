@@ -1,0 +1,6 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    results {
+        "Racing" -1-2 "river"
+    }
+}

@@ -1,0 +1,5 @@
+federation AFA {
+    league Primera {
+        teams { "Racing", "river" }
+    }
+}

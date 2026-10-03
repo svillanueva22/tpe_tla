@@ -1,0 +1,13 @@
+federation FIFA {
+    tournament Copa {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format knockout
+        schedule starting may 1 every week
+    }
+
+    calendar from 2026 to 2042 {
+        every 4 years starting 2026 {
+            host Copa
+        }
+    }
+}

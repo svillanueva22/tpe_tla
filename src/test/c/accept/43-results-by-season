@@ -1,0 +1,14 @@
+federation AFA {
+    league Primera tier 1 {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin
+        schedule starting february 1 every sunday
+        points { win = 3, draw = 1, loss = 0 }
+        results 2026 {
+            "Racing" 2-1 "river"
+        }
+        results 2027 {
+            "river" 1-0 "Racing"
+        }
+    }
+}

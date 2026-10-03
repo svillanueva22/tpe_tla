@@ -1,0 +1,8 @@
+tournament Supercopa {
+    teams { "river", "Boca" }
+    format knockout
+    schedule starting 2026-02-20 every day
+    results {
+        "river" 1-1 "Boca" penalties 4-2
+    }
+}

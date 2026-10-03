@@ -1,0 +1,11 @@
+// Comentario de línea antes del torneo.
+tournament Apertura { /* comentario de bloque en la misma línea */
+    teams { "Racing", "river", "Boca", "Independiente" } // comentario al final de la línea
+    /*
+     * Comentario de bloque
+     * de varias líneas.
+     */
+    format round robin
+    schedule starting 2026-03-01 every sunday
+}
+/* Comentario final. */

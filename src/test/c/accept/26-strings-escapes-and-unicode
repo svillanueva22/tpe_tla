@@ -1,0 +1,5 @@
+tournament Amistoso {
+    teams { "Newell's Old Boys", "Club \"El Porvenir\"", "Atlético Tucumán", "São Paulo", "Barra\\Slash" }
+    format round robin
+    schedule starting 2026-03-01 every sunday
+}

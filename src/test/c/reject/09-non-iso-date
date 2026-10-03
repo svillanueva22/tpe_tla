@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    schedule starting 01/03/2026 every sunday
+}

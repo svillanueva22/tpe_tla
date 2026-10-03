@@ -1,0 +1,5 @@
+calendar from 2026 to 2030 {
+    every year {
+        host Copa
+    }
+}

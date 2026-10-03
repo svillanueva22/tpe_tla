@@ -1,0 +1,7 @@
+federation AFA {
+    tournament Reducido {
+        teams from Fantasma top 4
+        format knockout
+        schedule starting november 1 every week
+    }
+}

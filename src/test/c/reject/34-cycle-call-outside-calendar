@@ -1,0 +1,6 @@
+federation FIFA {
+    cycle Mundial(edition) {
+        host Copa in edition
+    }
+    Mundial(2026)
+}

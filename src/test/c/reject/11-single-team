@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing" }
+    format round robin
+}

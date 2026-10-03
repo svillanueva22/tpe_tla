@@ -1,0 +1,62 @@
+// Ejemplo 4: federación con pirámide de ligas, promedios, reducido y movimiento.
+federation AFA {
+    template points Standard { win = 3, draw = 1, loss = 0 }
+
+    league Primera tier 1 {
+        teams {
+            "Racing", "river", "Boca", "Rosario Central",
+            "San Lorenzo", "Estudiantes"
+        }
+        format round robin double
+        schedule starting february 1 every sunday
+        use points Standard
+        zone Campeon champion first
+        zone Descenso relegate bottom 1 by average of last 3 seasons
+    }
+
+    league Nacional tier 2 {
+        teams {
+            "Colón", "Banfield", "Newell's", "Argentinos",
+            "Gimnasia", "Lanús"
+        }
+        format round robin double
+        schedule starting february 1 every saturday
+        use points Standard
+        zone Ascenso promote first
+        zone Descenso relegate last
+    }
+
+    league PrimeraB tier 3 {
+        teams {
+            "Temperley", "Independiente", "Tigre", "Platense",
+            "Quilmes", "Chacarita"
+        }
+        format round robin
+        schedule starting february 1 every sunday
+        use points Standard
+        zone Ascenso promote first
+    }
+
+    tournament Reducido {
+        teams from Nacional positions 2 to 5
+        format knockout double
+        schedule starting november 20 every week
+    }
+
+    movement {
+        relegate Descenso from Primera to Nacional
+        promote Ascenso from Nacional to Primera
+        promote winner of Reducido from Nacional to Primera
+        relegate Descenso from Nacional to PrimeraB
+        promote Ascenso from PrimeraB to Nacional
+    }
+
+    calendar from 2026 to 2028 {
+        every year {
+            host Primera
+            host Nacional
+            host PrimeraB
+            host Reducido
+        }
+    }
+}

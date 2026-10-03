@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    zone Libertadores qualify to "Copa Libertadores" top
+}

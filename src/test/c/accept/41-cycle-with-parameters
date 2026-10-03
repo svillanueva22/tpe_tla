@@ -1,0 +1,22 @@
+federation FIFA {
+    tournament Copa {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format knockout
+        schedule starting may 1 every week
+    }
+
+    tournament Eliminatorias {
+        teams { "Argentina", "Brasil", "Uruguay", "Chile" }
+        format round robin double
+        schedule starting september 1 every week
+    }
+    cycle Mundial(edition, previous) {
+        host Eliminatorias in previous
+        host Copa in edition
+    }
+    calendar from 2026 to 2034 {
+        every 4 years starting 2026 as Y {
+            Mundial(Y, Y - 1)
+        }
+    }
+}

@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { "Racing", "river" }
+    zone Campeon champion positions 1..1
+}

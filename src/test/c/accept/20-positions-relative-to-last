@@ -1,0 +1,8 @@
+tournament Primera {
+    teams { "Racing", "river", "Boca", "Independiente", "Huracán", "Lanús", "Talleres", "Belgrano" }
+    format round robin
+    schedule starting 2026-02-01 every sunday
+    zone Sudamericana qualify to "Copa Sudamericana" positions 2 to last - 3
+    zone Promocion relegate position last - 2
+    zone Descenso relegate positions last - 1 to last
+}

@@ -1,0 +1,8 @@
+tournament Nacional {
+    teams { "Colón", "Banfield", "Quilmes", "Chacarita", "Atlanta", "Temperley" }
+    format round robin double
+    schedule starting 2026-02-01 every sunday
+    zone Campeon champion first
+    zone Ascenso promote top 2
+    zone Descenso relegate bottom 2
+}

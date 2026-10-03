@@ -1,0 +1,17 @@
+federation Conmebol {
+    tournament Eliminatorias {
+        teams { "Argentina", "Brasil", "Uruguay", "Colombia", "Ecuador", "Paraguay", "Chile", "Perú" }
+        format round robin double
+        schedule starting september 5 every 4 days
+    }
+    tournament Repechaje {
+        teams from Eliminatorias position 7
+        format knockout
+        schedule starting march 20 every day
+    }
+    tournament Finalissima {
+        teams from Eliminatorias top 2 by average of last 2 seasons
+        format knockout
+        schedule starting june 1 every day
+    }
+}

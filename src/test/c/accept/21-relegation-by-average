@@ -1,0 +1,6 @@
+tournament Primera {
+    teams { "Racing", "river", "Boca", "Independiente", "Huracán", "Lanús" }
+    format round robin
+    schedule starting 2026-02-01 every sunday
+    zone Descenso relegate bottom 2 by average of last 3 seasons
+}

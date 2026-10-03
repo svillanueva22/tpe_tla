@@ -1,0 +1,3 @@
+tournament Apertura {
+    teams { "Racing", "river" } @
+}

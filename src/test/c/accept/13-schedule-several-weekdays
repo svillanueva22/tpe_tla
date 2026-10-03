@@ -1,0 +1,5 @@
+tournament Apertura {
+    teams { "Racing", "river", "Boca", "Independiente" }
+    format round robin double
+    schedule starting 2026-03-04 every wednesday and saturday and sunday
+}

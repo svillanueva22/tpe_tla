@@ -1,0 +1,22 @@
+template points Standard { win = 3, draw = 1, loss = 0 }
+
+tournament Apertura {
+    teams { "Racing", "river" }
+    format round robin
+    schedule starting 2026-02-01 every sunday
+    use points Standard
+}
+
+federation AFA {
+    tournament Copa {
+        teams { "Racing", "river" }
+        format knockout
+        schedule starting may 1 every week
+    }
+}
+
+tournament Clausura {
+    teams { "Racing", "river" }
+    format round robin
+    schedule starting 2026-07-15 every sunday
+}

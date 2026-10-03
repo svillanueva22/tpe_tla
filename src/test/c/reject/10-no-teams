@@ -1,0 +1,4 @@
+tournament Apertura {
+    teams { }
+    format round robin
+}

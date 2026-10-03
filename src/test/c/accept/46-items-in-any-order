@@ -1,0 +1,6 @@
+tournament Apertura {
+    zone Campeon champion first
+    schedule starting 2026-03-01 every sunday
+    format round robin
+    teams { "Racing", "river", "Boca", "Independiente" }
+}

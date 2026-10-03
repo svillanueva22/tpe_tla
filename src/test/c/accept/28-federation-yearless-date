@@ -1,0 +1,7 @@
+federation AFA {
+    tournament Apertura {
+        teams { "Racing", "river", "Boca", "Independiente" }
+        format round robin
+        schedule starting march 1 every sunday
+    }
+}

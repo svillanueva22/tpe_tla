@@ -1,0 +1,7 @@
+federation FIFA {
+    calendar from 2026 to 2034 as xlsx to "fixtura_{year}.xlsx" {
+        every year {
+            host Copa
+        }
+    }
+}

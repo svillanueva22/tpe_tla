@@ -1,0 +1,10 @@
+// Ejemplo 1: liga suelta con tabla base.
+tournament Apertura {
+    teams {
+        "Atlético Nacional", "Deportivo Mitre",
+        "Unión", "Estrella Roja"
+    }
+    format round robin
+    schedule starting 2026-03-01 every sunday
+    zone Campeon champion first
+}
