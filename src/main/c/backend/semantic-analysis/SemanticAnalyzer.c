@@ -506,7 +506,7 @@ static void _analyzeFederation(Federation * fed, ScopeStack * stack, CompilerSta
 					Symbol * vsym = _makeSymbol((char *) p->element, SYM_YEAR_VARIABLE, 0, 0);
 					_insertInCurrentScope(stack, vsym);
 				}
-				_analyzeStatements(cy->body, stack, state, false);
+				_analyzeStatements(cy->body, stack, state, true);
 				_popScope(stack);
 				break;
 			}
@@ -632,7 +632,7 @@ static void _analyzeStatement(Statement * stmt, ScopeStack * stack, CompilerStat
 			_analyzeStatements(ev->body, stack, state, true);
 			_popScope(stack);
 			if (ev->otherwise != NULL) {
-				_analyzeStatements(ev->otherwise, stack, state, false);
+				_analyzeStatements(ev->otherwise, stack, state, true);
 			}
 			break;
 		}
