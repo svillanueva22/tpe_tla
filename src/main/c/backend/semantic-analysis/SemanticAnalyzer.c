@@ -334,20 +334,22 @@ static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState
 				}
 			}
 
-			/* [05] overlapping zones (pairwise) */
+			/* [05] overlapping same-kind zones (pairwise) */
 			if (zones->size > 1) {
-				int ranges[zones->size][2];
 				int idx = 0;
+				int from[zones->size], to[zones->size];
+				ZoneKind kinds[zones->size];
 				for (ListNode * zn = zones->first; zn != NULL; zn = zn->next) {
 					Zone * z = zn->element;
-					if (_selectorToRange(z->selector, teamCount, &ranges[idx][0], &ranges[idx][1])) {
+					if (_selectorToRange(z->selector, teamCount, &from[idx], &to[idx])) {
+						kinds[idx] = z->kind;
 						idx++;
 					}
 				}
 				for (int a = 0; a < idx; ++a) {
 					for (int b = a + 1; b < idx; ++b) {
-						if (ranges[a][0] <= ranges[b][1] && ranges[b][0] <= ranges[a][1]) {
-							logError(_logger, "Semantic error [05]: overlapping zones in tournament \"%s\".", t->name);
+						if (kinds[a] == kinds[b] && from[a] <= to[b] && from[b] <= to[a]) {
+							logError(_logger, "Semantic error [05]: overlapping same-kind zones in tournament \"%s\".", t->name);
 							state->semanticError = true;
 						}
 					}
