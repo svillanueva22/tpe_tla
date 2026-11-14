@@ -105,7 +105,7 @@ static Symbol * _makeSymbol(const char * name, SymbolKind kind, int tier, int ar
 
 static void _analyzeProgram(Program * program, ScopeStack * stack, CompilerState * state);
 static void _analyzeDeclaration(Declaration * decl, ScopeStack * stack, CompilerState * state, bool insideFederation);
-static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState * state, bool insideFederation);
+static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState * state, bool insideFederation, bool registerSymbol);
 static void _analyzeTemplate(Template * tmpl, ScopeStack * stack, CompilerState * state);
 static void _analyzeFederation(Federation * fed, ScopeStack * stack, CompilerState * state);
 static void _analyzeMovement(Movement * mov, ScopeStack * stack, CompilerState * state, int maxTier);
@@ -167,7 +167,7 @@ static void _analyzeProgram(Program * program, ScopeStack * stack, CompilerState
 static void _analyzeDeclaration(Declaration * decl, ScopeStack * stack, CompilerState * state, bool insideFederation) {
 	switch (decl->type) {
 		case DECLARATION_TOURNAMENT:
-			_analyzeTournament(decl->tournament, stack, state, insideFederation);
+			_analyzeTournament(decl->tournament, stack, state, insideFederation, true);
 			break;
 		case DECLARATION_TEMPLATE:
 			_analyzeTemplate(decl->templateDefinition, stack, state);
@@ -182,14 +182,16 @@ static void _analyzeDeclaration(Declaration * decl, ScopeStack * stack, Compiler
 /* Tournament validation                                                       */
 /* -------------------------------------------------------------------------- */
 
-static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState * state, bool insideFederation) {
-	/* [02] duplicate name */
-	SymbolKind kind = (t->type == KIND_LEAGUE) ? SYM_LEAGUE : SYM_TOURNAMENT;
-	Symbol * sym = _makeSymbol(t->name, kind, t->tier, 0);
-	if (!_insertInCurrentScope(stack, sym)) {
-		logError(_logger, "Semantic error [02]: duplicate tournament/league name \"%s\".", t->name);
-		state->semanticError = true;
-		free(sym);
+static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState * state, bool insideFederation, bool registerSymbol) {
+	/* [02] duplicate name — skipped in federation 2nd pass (already registered in 1st pass) */
+	if (registerSymbol) {
+		SymbolKind kind = (t->type == KIND_LEAGUE) ? SYM_LEAGUE : SYM_TOURNAMENT;
+		Symbol * sym = _makeSymbol(t->name, kind, t->tier, 0);
+		if (!_insertInCurrentScope(stack, sym)) {
+			logError(_logger, "Semantic error [02]: duplicate tournament/league name \"%s\".", t->name);
+			state->semanticError = true;
+			free(sym);
+		}
 	}
 
 	/* Collect tournament items */
@@ -489,7 +491,7 @@ static void _analyzeFederation(Federation * fed, ScopeStack * stack, CompilerSta
 		FederationItem * item = n->element;
 		switch (item->type) {
 			case FEDERATION_ITEM_TOURNAMENT:
-				_analyzeTournament(item->tournament, stack, state, true);
+				_analyzeTournament(item->tournament, stack, state, true, false);
 				break;
 			case FEDERATION_ITEM_TEMPLATE:
 				/* already registered; no further rules */
