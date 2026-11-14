@@ -1,4 +1,5 @@
 #include "backend/code-generation/Generator.h"
+#include "backend/semantic-analysis/SemanticAnalyzer.h"
 #include "frontend/Frontend.h"
 #include "frontend/lexical-analysis/FlexActions.h"
 #include "frontend/syntactic-analysis/BisonActions.h"
@@ -26,21 +27,23 @@ const int main(const int length, const char ** arguments) {
 		initializeFlexActionsModule(lexicalAnalyzer),
 		initializeBisonActionsModule(&compilerState),
 		initializeFrontendModule(lexicalAnalyzer),
+		initializeSemanticAnalyzerModule(),
 		initializeGeneratorModule()
 	};
 	CompilationStatus compilationStatus = executeSyntacticAnalysis();
 	Program * program = compilerState.abstractSyntaxtTree;
 	if (compilationStatus == SUCCEEDED) {
-		// ----------------------------------------------------------------------------------------
-		// Beginning of the Backend... ------------------------------------------------------------
-		// Stage II (frontend): the generator only prints the AST that was built.
-		executeGenerator(&compilerState);
-		// ...end of the Backend. -----------------------------------------------------------------
-		// ----------------------------------------------------------------------------------------
+		compilationStatus = executeSemanticAnalysis(&compilerState);
 	}
 	else {
 		logError(logger, "The syntactic-analysis phase rejects the input program.");
 		compilationStatus = FAILED;
+	}
+	if (compilationStatus == SUCCEEDED) {
+		executeGenerator(&compilerState);
+	}
+	else if (compilerState.semanticError) {
+		logError(logger, "The semantic-analysis phase rejects the input program.");
 	}
 	logDebugging(logger, "Releasing AST resources...");
 	destroyProgram(program);
