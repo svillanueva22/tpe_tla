@@ -6,7 +6,7 @@
 
 Compilador de **Fixtura**, un DSL para declarar torneos de fútbol (ligas, copas y federaciones con calendarios plurianuales), desarrollado con Flex y Bison sobre la base de [Flex-Bison-Compiler](https://github.com/agustin-golmar/Flex-Bison-Compiler). El compilador valida el programa (análisis léxico, sintáctico y semántico) y genera un **documento HTML** autocontenido con el fixture de cada torneo.
 
-La especificación del lenguaje se encuentra en [`doc/Especificación_Fixtura_TLA.pdf`](doc/Especificación_Fixtura_TLA.pdf).
+La especificación del lenguaje se encuentra en [`doc/Especificación_Fixtura_TLA.pdf`](doc/Especificación_Fixtura_TLA.pdf). El informe final se encuentra en [`doc/Informe_Final_G-144.pdf`](doc/Informe_Final_G-144.pdf).
 
 * [Requerimientos](#requerimientos)
 * [Configuración](#configuración)
