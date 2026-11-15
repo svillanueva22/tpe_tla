@@ -1,6 +1,6 @@
 [![✗](https://img.shields.io/badge/Release-v2.0.0-ffb600.svg?style=for-the-badge)](https://github.com/svillanueva22/tpe_tla/releases)
 
-[![✗](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml/badge.svg?branch=production)](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml)
+[![✗](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml/badge.svg?branch=development)](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml)
 
 # Fixtura
 
@@ -34,8 +34,8 @@ Las siguientes variables de entorno controlan el comportamiento de la aplicació
 
 _Docker Compose_ también puede leer las variables desde un archivo `.env` (ver `compose.yaml`).
 
-> [!IMPORTANT]
-> Los logs de nivel inferior a `ERROR` se escriben en la salida estándar, junto con el HTML. Para obtener un HTML limpio, compilar con `LOGGING_LEVEL=ERROR` (los errores van a la salida de error estándar).
+> [!NOTE]
+> Todos los logs se escriben en la salida de error estándar, por lo que la salida estándar contiene únicamente el HTML generado.
 
 ## Comandos
 
@@ -60,16 +60,16 @@ src/main/bash/build.sh
 ### Compilar un programa
 
 ```bash
-LOGGING_LEVEL=ERROR src/main/bash/run.sh <programa> > <salida>.html
+src/main/bash/run.sh <programa> > <salida>.html
 ```
 
 donde `<programa>` es la ruta al archivo fuente. Por ejemplo:
 
 ```bash
-LOGGING_LEVEL=ERROR src/main/bash/run.sh src/test/c/accept/93-example-afa > afa.html
+src/main/bash/run.sh src/test/c/accept/93-example-afa > afa.html
 ```
 
-Luego, abrir el archivo `.html` con cualquier navegador. El código de salida es `0` si el programa es correcto, y distinto de `0` si se rechaza (los errores léxicos, sintácticos o semánticos se informan en la salida de error estándar).
+Luego, abrir el archivo `.html` con cualquier navegador. El código de salida es `0` si el programa es correcto, y distinto de `0` si se rechaza (los errores léxicos, sintácticos o semánticos se informan en la salida de error estándar). Para silenciar los logs en la terminal, agregar `LOGGING_LEVEL=ERROR` al inicio del comando.
 
 ### Testear
 
@@ -105,11 +105,11 @@ El compilador emite un único documento HTML con estilos y un script embebidos. 
 * **Torneo todos contra todos**: fixture por fechas (algoritmo de Berger; con equipo libre si la cantidad es impar, y a una o dos ruedas), y tabla de posiciones con las zonas coloreadas (campeón, ascenso, descenso y clasificación).
 * **Eliminación directa**: cuadro de llaves. Si la cantidad de equipos no es potencia de 2, los primeros pasan directo (_bye_).
 * **Grupos y eliminación directa**: fixture de la fase de grupos, tabla por grupo y cuadro eliminatorio cruzado (e.g., «1° Grupo A» contra «2° Grupo B»).
-* **Federación**: el calendario se evalúa año por año (`every`, `otherwise`, `if`/`else`, ciclos y `host` con años explícitos o relativos) y se genera cada torneo en las temporadas que lo albergan, resolviendo las fechas sin año. Además, se listan las reglas de ascenso y descenso.
+* **Federación**: el calendario se evalúa año por año (`every`, `otherwise`, `if`/`else`, ciclos y `host` con años explícitos o relativos) y se genera cada torneo en las temporadas que lo albergan, resolviendo las fechas sin año. Además, se listan las reglas de ascenso y descenso y se aplican entre temporadas consecutivas, rearmando los planteles de cada liga para el año siguiente.
 
-Las fechas de cada jornada se calculan a partir del `schedule` (cada N días, cada N semanas, o ciertos días de la semana). Si el torneo declara `results`, la tabla de posiciones se calcula con ellos (según `points` y `tiebreak`, o los _templates_ usados), y en las llaves avanzan los ganadores (por global y, si hace falta, por penales). Los equipos tomados de otro torneo (`teams from`) se muestran según su posición (e.g., «2° Nacional»), ya que se definen recién al finalizar ese torneo.
+Las fechas de cada jornada se calculan a partir del `schedule` (cada N días, cada N semanas, o ciertos días de la semana). Si el torneo declara `results`, la tabla de posiciones se calcula con ellos (según `points` y `tiebreak`, o los _templates_ usados), y en las llaves avanzan los ganadores (por global y, si hace falta, por penales). Los equipos tomados de otro torneo (`teams from`) se muestran según su posición (e.g., «2° Nacional») hasta que los resultados permiten conocerlos, ya que se definen recién al finalizar ese torneo.
 
-El documento es interactivo: cada partido del fixture y cada llave tiene campos para cargar goles (y penales), precargados con los `results` declarados. Al escribir un resultado se recalculan los puntos y el orden de las tablas (según `points` y `tiebreak`; las zonas se mantienen por posición), al completarse un grupo sus clasificados ocupan su lugar en las llaves, y los ganadores avanzan hasta el campeón. Los resultados cargados se guardan en el `localStorage` del navegador, y el botón «Restaurar resultados declarados» vuelve a los del programa.
+El documento es interactivo: cada partido del fixture y cada llave tiene campos para cargar goles (y penales), precargados con los `results` declarados. Al escribir un resultado se recalculan los puntos y el orden de las tablas (según `points` y `tiebreak`; las zonas se mantienen por posición), al completarse un grupo sus clasificados ocupan su lugar en las llaves, y los ganadores avanzan hasta el campeón. En una federación, al cargar los resultados de una temporada se recalculan los ascensos y descensos y los equipos tomados de otro torneo (`teams from`) para las temporadas siguientes. Los resultados cargados se guardan en el `localStorage` del navegador, y el botón «Restaurar resultados declarados» vuelve a los del programa.
 
 ## Casos de prueba
 
