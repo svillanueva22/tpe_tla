@@ -749,18 +749,23 @@ static Row * _computeStandings(Standings * standings) {
 	return rows;
 }
 
-static void _genStandings(Standings * standings, List * zones, const char * title) {
+/**
+ * Outputs the standings of a group (the index of its first team in the teams
+ * of the tournament is the offset). The zones go by position, so they stay
+ * fixed when the script reorders the rows.
+ */
+static void _genStandings(Standings * standings, const int group, const int offset, List * zones, const char * title) {
 	Row * rows = _computeStandings(standings);
 	const bool hasZones = zones != NULL && 0 < zones->size;
-	_output("<h4>%s</h4><table class=\"standings\"><tr><th>#</th><th class=\"team\">Equipo</th>"
+	_output("<h4>%s</h4><table class=\"standings\" data-group=\"%d\"><tr><th>#</th><th class=\"team\">Equipo</th>"
 		"<th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th>Pts</th>%r</tr>",
-		title, hasZones ? "<th>Zona</th>" : "");
+		title, group, hasZones ? "<th>Zona</th>" : "");
 	for (int k = 0; k < standings->count; ++k) {
 		const Row * row = &rows[k];
 		Zone * zone = hasZones ? _zoneAt(zones, k + 1, standings->count) : NULL;
-		_output("<tr class=\"%r\"><td>%d</td><td class=\"team\">%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td>"
+		_output("<tr class=\"%r\" data-team=\"%d\"><td>%d</td><td class=\"team\">%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td>"
 			"<td>%d</td><td>%d</td><td>%d</td><td><strong>%d</strong></td>",
-			zone == NULL ? "" : _zoneClass(zone->kind), k + 1, standings->teams[row->team], row->played, row->won,
+			zone == NULL ? "" : _zoneClass(zone->kind), offset + row->team, k + 1, standings->teams[row->team], row->played, row->won,
 			row->drawn, row->lost, row->goalsFor, row->goalsAgainst, row->goalsFor - row->goalsAgainst, row->points);
 		if (hasZones) {
 			_output("<td>%s</td>", zone == NULL ? "" : zone->name);
@@ -783,6 +788,24 @@ static void _genScore(Result * result) {
 	if (result->hasPenalties) {
 		_output(" <small>(%d-%d pen.)</small>", result->homePenalties, result->awayPenalties);
 	}
+	_output("</td>");
+}
+
+/** Outputs an input for an amount of goals, with its declared value (if any). */
+static void _genGoalsInput(const char * classes, const bool known, const int goals) {
+	_output("<input class=\"goals %r\" type=\"number\" min=\"0\" inputmode=\"numeric\"", classes);
+	if (known) {
+		_output(" value=\"%d\"", goals);
+	}
+	_output(">");
+}
+
+/** The score of a match of the fixture, as inputs prefilled with its result. */
+static void _genScoreInputs(Result * result) {
+	_output("<td class=\"score\">");
+	_genGoalsInput("home-goals", result != NULL, result == NULL ? 0 : result->homeGoals);
+	_output(" - ");
+	_genGoalsInput("away-goals", result != NULL, result == NULL ? 0 : result->awayGoals);
 	_output("</td>");
 }
 
@@ -865,26 +888,30 @@ static void _genRoundRobin(char ** teams, const int size, const int groups, cons
 			_genNextMatchday(matchdays);
 			_output("<table class=\"matches\">");
 			for (int group = 0; group < groups; ++group) {
-				char ** groupTeams = teams + group * size;
 				for (int match = 0; match < perRound; ++match) {
 					Pairing pairing = pairings[round * perRound + match];
 					if (pairing.home < 0 || pairing.away < 0) {
 						continue;
 					}
-					const char * home = groupTeams[leg == 0 ? pairing.home : pairing.away];
-					const char * away = groupTeams[leg == 0 ? pairing.away : pairing.home];
+					int homeIndex = group * size + (leg == 0 ? pairing.home : pairing.away);
+					int awayIndex = group * size + (leg == 0 ? pairing.away : pairing.home);
+					const char * home = teams[homeIndex];
+					const char * away = teams[awayIndex];
 					Result * result = _findResult(results, home, away);
 					if (result == NULL && legs == LEGS_SINGLE && (result = _findResult(results, away, home)) != NULL) {
 						// With a single leg, the declared result may swap who plays at home.
+						const int swap = homeIndex;
+						homeIndex = awayIndex;
+						awayIndex = swap;
 						home = result->home;
 						away = result->away;
 					}
-					_output("<tr>");
+					_output("<tr class=\"match\" data-group=\"%d\" data-home=\"%d\" data-away=\"%d\">", group, homeIndex, awayIndex);
 					if (1 < groups) {
 						_output("<td class=\"group\">%r</td>", (char[]) {_groupLetter(group), '\0'});
 					}
 					_output("<td class=\"home\">%s</td>", home);
-					_genScore(result);
+					_genScoreInputs(result);
 					_output("<td class=\"away\">%s</td></tr>", away);
 				}
 			}
@@ -923,26 +950,32 @@ static const char * _roundName(const int matches) {
 }
 
 /**
+ * Finds the declared results of a tie between teams A and B: the first leg
+ * (or the only one) and, for home and away ties, the second leg. Returns
+ * false if the tie is incomplete.
+ */
+static bool _tieResults(List * results, const char * a, const char * b, const Legs legs, Result ** first, Result ** second) {
+	*first = _findResult(results, a, b);
+	*second = _findResult(results, b, a);
+	if (legs == LEGS_SINGLE) {
+		if (*first == NULL) {
+			*first = *second;
+		}
+		*second = NULL;
+		return *first != NULL;
+	}
+	return *first != NULL && *second != NULL;
+}
+
+/**
  * Determines the winner of a tie from the declared results (the aggregate,
  * for home and away ties, and then the penalties). Returns 0 if unknown, 1
  * if team A wins, or 2 if team B wins.
  */
 static int _tieWinner(List * results, const char * a, const char * b, const Legs legs) {
-	Result * first = _findResult(results, a, b);
-	Result * second = _findResult(results, b, a);
-	if (legs == LEGS_SINGLE) {
-		if (first == NULL) {
-			first = second;
-			second = NULL;
-		}
-		else {
-			second = NULL;
-		}
-		if (first == NULL) {
-			return 0;
-		}
-	}
-	else if (first == NULL || second == NULL) {
+	Result * first;
+	Result * second;
+	if (!_tieResults(results, a, b, legs, &first, &second)) {
 		return 0;
 	}
 	int goalsA = 0, goalsB = 0, penaltiesA = 0, penaltiesB = 0;
@@ -985,12 +1018,55 @@ static void _genKnockoutDates(Matchdays * matchdays, const Legs legs) {
 	}
 }
 
+/** Outputs the goals of team A (from its point of view) in a leg, as an input. */
+static void _genLegInput(const char * classes, Result * result, const char * a) {
+	const bool aIsHome = result != NULL && strcmp(result->home, a) == 0;
+	_genGoalsInput(classes, result != NULL, result == NULL ? 0 : (aIsHome ? result->homeGoals : result->awayGoals));
+}
+
+/**
+ * Outputs the inputs of a tie between teams A and B, prefilled with the
+ * declared results: the goals of each leg (the first leg is played at the
+ * home of A) and the penalties.
+ */
+static void _genTieInputs(List * results, const char * a, const char * b, const Legs legs, const int winner) {
+	Result * first = NULL;
+	Result * second = NULL;
+	_tieResults(results, a, b, legs, &first, &second);
+	Result * penalties = second != NULL && second->hasPenalties ? second : (first != NULL && first->hasPenalties ? first : NULL);
+	const char * names[] = {a, b};
+	const char * sides[] = {"a", "b"};
+	if (legs == LEGS_DOUBLE) {
+		_output("<div class=\"legs\"><span>Ida</span><span>Vuelta</span></div>");
+	}
+	for (int side = 0; side < 2; ++side) {
+		char * firstClass = _newString("first-%s", sides[side]);
+		char * secondClass = _newString("second-%s", sides[side]);
+		_output("<div class=\"side\"><span class=\"slot slot-%r%r\">%s</span>", sides[side], winner == side + 1 ? " winner" : "", names[side]);
+		_genLegInput(firstClass, first, names[side]);
+		if (legs == LEGS_DOUBLE) {
+			_genLegInput(secondClass, second, names[side]);
+		}
+		_output("</div>");
+		free(firstClass);
+		free(secondClass);
+	}
+	const bool aIsHome = penalties != NULL && strcmp(penalties->home, a) == 0;
+	_output("<div class=\"penalties\">Penales ");
+	_genGoalsInput("pen-a", penalties != NULL, penalties == NULL ? 0 : (aIsHome ? penalties->homePenalties : penalties->awayPenalties));
+	_output(" - ");
+	_genGoalsInput("pen-b", penalties != NULL, penalties == NULL ? 0 : (aIsHome ? penalties->awayPenalties : penalties->homePenalties));
+	_output("</div>");
+}
+
 /**
  * Outputs the bracket of a knockout. If the amount of entrants is not a power
  * of 2, the first ones get a bye. The winners advance when the declared
- * results allow to know them; otherwise, a placeholder takes their slot.
+ * results allow to know them; otherwise, a placeholder takes their slot. Each
+ * slot also carries its source, so that the script can resolve it again: an
+ * entrant ("t:K" or "g:G:P", as given) or the winner of a tie ("w:N").
  */
-static void _genKnockout(char ** entrants, const int count, const Legs legs, Matchdays * matchdays, List * results) {
+static void _genKnockout(char ** entrants, char ** sources, const int count, const Legs legs, Matchdays * matchdays, List * results) {
 	_output("<h4>Llaves</h4>");
 	if (count < 2) {
 		if (count == 1) {
@@ -1005,18 +1081,21 @@ static void _genKnockout(char ** entrants, const int count, const Legs legs, Mat
 	const int byes = size - count;
 	List * owned = createList();
 	const char ** slots = calloc(size, sizeof(char *));
+	const char ** slotSources = calloc(size, sizeof(char *));
 	bool * decided = calloc(size, sizeof(bool));
 	for (int k = 0; k < byes; ++k) {
 		slots[2 * k] = entrants[k];
+		slotSources[2 * k] = sources[k];
 	}
 	for (int k = byes; k < count; ++k) {
 		slots[2 * byes + (k - byes)] = entrants[k];
+		slotSources[2 * byes + (k - byes)] = sources[k];
 	}
 	for (int k = 0; k < size; ++k) {
 		decided[k] = slots[k] != NULL;
 	}
 	int tie = 0;
-	_output("<div class=\"bracket\">");
+	_output("<div class=\"bracket\" data-legs=\"%r\">", legs == LEGS_DOUBLE ? "double" : "single");
 	for (int width = size; 1 < width; width /= 2) {
 		const int matches = width / 2;
 		const char * name = _roundName(matches);
@@ -1029,18 +1108,22 @@ static void _genKnockout(char ** entrants, const int count, const Legs legs, Mat
 			const char * a = slots[2 * match];
 			const char * b = slots[2 * match + 1];
 			const char * winner = NULL;
+			const char * winnerSource = NULL;
 			bool winnerDecided = false;
 			++tie;
-			_output("<div class=\"matchup\"><small>Llave %d</small>", tie);
 			if (a == NULL || b == NULL) {
 				winner = a == NULL ? b : a;
+				winnerSource = a == NULL ? slotSources[2 * match + 1] : slotSources[2 * match];
 				winnerDecided = a == NULL ? decided[2 * match + 1] : decided[2 * match];
-				_output("<span>%s</span><span class=\"bye\">pasa directo</span>", winner == NULL ? "—" : winner);
+				_output("<div class=\"matchup\" data-tie=\"%d\" data-a=\"%r\" data-bye><small>Llave %d</small>",
+					tie, winnerSource == NULL ? "" : winnerSource, tie);
+				_output("<span class=\"slot slot-a\">%s</span><span class=\"bye\">pasa directo</span>", winner == NULL ? "—" : winner);
 			}
 			else {
 				const int outcome = decided[2 * match] && decided[2 * match + 1] ? _tieWinner(results, a, b, legs) : 0;
-				_output("<span class=\"%r\">%s</span><span class=\"%r\">%s</span>",
-					outcome == 1 ? "winner" : "", a, outcome == 2 ? "winner" : "", b);
+				_output("<div class=\"matchup\" data-tie=\"%d\" data-a=\"%r\" data-b=\"%r\"><small>Llave %d</small>",
+					tie, slotSources[2 * match], slotSources[2 * match + 1], tie);
+				_genTieInputs(results, a, b, legs, outcome);
 				if (outcome == 0) {
 					char * placeholder = _newString("Ganador llave %d", tie);
 					appendToList(owned, placeholder);
@@ -1050,18 +1133,22 @@ static void _genKnockout(char ** entrants, const int count, const Legs legs, Mat
 					winner = outcome == 1 ? a : b;
 					winnerDecided = true;
 				}
+				char * source = _newString("w:%d", tie);
+				appendToList(owned, source);
+				winnerSource = source;
 			}
 			_output("</div>");
 			slots[match] = winner;
+			slotSources[match] = winnerSource;
 			decided[match] = winnerDecided;
 		}
 		_output("</div>");
 	}
 	_output("</div>");
-	if (decided[0] && slots[0] != NULL) {
-		_output("<p class=\"champion\">Campeón: <strong>%s</strong></p>", slots[0]);
-	}
+	const bool hasChampion = decided[0] && slots[0] != NULL;
+	_output("<p class=\"champion\"%r>Campeón: <strong>%s</strong></p>", hasChampion ? "" : " hidden", hasChampion ? slots[0] : "");
 	free(decided);
+	free(slotSources);
 	free(slots);
 	destroyList(owned, free);
 }
@@ -1102,26 +1189,31 @@ static void _genGroups(TournamentAttributes * attributes, Matchdays * matchdays)
 			.tiebreak = attributes->tiebreak
 		};
 		char * title = _newString("Posiciones — Grupo %c", _groupLetter(group));
-		_genStandings(&standings, NULL, title);
+		_genStandings(&standings, group, group * size, NULL, title);
 		free(title);
 	}
 	const int count = groups * advancing;
 	char ** entrants = calloc(count == 0 ? 1 : count, sizeof(char *));
+	char ** sources = calloc(count == 0 ? 1 : count, sizeof(char *));
 	int k = 0;
 	for (int group = 0; group < groups; group += 2) {
 		const bool paired = group + 1 < groups;
 		for (int position = 1; position <= advancing; ++position) {
+			sources[k] = _newString("g:%d:%d", group, position);
 			entrants[k++] = _newString("%d° Grupo %c", position, _groupLetter(group));
 			if (paired) {
+				sources[k] = _newString("g:%d:%d", group + 1, advancing + 1 - position);
 				entrants[k++] = _newString("%d° Grupo %c", advancing + 1 - position, _groupLetter(group + 1));
 			}
 		}
 	}
-	_genKnockout(entrants, k, format->legs, matchdays, attributes->results);
+	_genKnockout(entrants, sources, k, format->legs, matchdays, attributes->results);
 	for (int j = 0; j < k; ++j) {
 		free(entrants[j]);
+		free(sources[j]);
 	}
 	free(entrants);
+	free(sources);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1143,11 +1235,45 @@ static void _genFormat(Format * format) {
 	}
 }
 
+static const char * _criterionToken(const TiebreakCriterion criterion) {
+	switch (criterion) {
+		case CRITERION_AWAY_GOALS: return "away";
+		case CRITERION_GOAL_DIFFERENCE: return "gd";
+		case CRITERION_GOALS_AGAINST: return "ga";
+		case CRITERION_GOALS_FOR: return "gf";
+		case CRITERION_HEAD_TO_HEAD: return "h2h";
+		case CRITERION_WINS: return "wins";
+		default: return "";
+	}
+}
+
+/**
+ * Outputs the attributes that the script needs to recompute the standings:
+ * the points of each outcome and the tiebreak criteria (by default, as in
+ * "_compareRows").
+ */
+static void _genRankingAttributes(TournamentAttributes * attributes) {
+	_output(" data-points=\"%d,%d,%d\" data-tiebreak=\"", _pointsFor(attributes->points, OUTCOME_WIN),
+		_pointsFor(attributes->points, OUTCOME_DRAW), _pointsFor(attributes->points, OUTCOME_LOSS));
+	if (attributes->tiebreak == NULL) {
+		_output("gd,gf");
+	}
+	else {
+		for (ListNode * node = attributes->tiebreak->criteria->first; node != NULL; node = node->next) {
+			Criterion * criterion = node->element;
+			_output("%r%r", node == attributes->tiebreak->criteria->first ? "" : ",", _criterionToken(criterion->value));
+		}
+	}
+	_output("\"");
+}
+
 static void _genTournament(Tournament * tournament, Federation * federation, const int year) {
 	TournamentAttributes attributes;
 	_resolveAttributes(tournament, federation, year, &attributes);
 	Matchdays matchdays = _startMatchdays(attributes.schedule, year);
-	_output("<section class=\"tournament\"><h3>%s", tournament->name);
+	_output("<section class=\"tournament\"");
+	_genRankingAttributes(&attributes);
+	_output("><h3>%s", tournament->name);
 	if (tournament->type == KIND_LEAGUE) {
 		_output(" <small class=\"tier\">división %d</small>", tournament->tier);
 	}
@@ -1169,16 +1295,26 @@ static void _genTournament(Tournament * tournament, Federation * federation, con
 			.points = attributes.points,
 			.tiebreak = attributes.tiebreak
 		};
+		_output("<button class=\"reset\" type=\"button\" hidden>Restaurar resultados declarados</button>");
 		switch (attributes.format->type) {
 			case FORMAT_GROUPS:
 				_genGroups(&attributes, &matchdays);
 				break;
-			case FORMAT_KNOCKOUT:
-				_genKnockout(attributes.teams, attributes.count, attributes.format->legs, &matchdays, attributes.results);
+			case FORMAT_KNOCKOUT: {
+				char ** sources = calloc(attributes.count == 0 ? 1 : attributes.count, sizeof(char *));
+				for (int k = 0; k < attributes.count; ++k) {
+					sources[k] = _newString("t:%d", k);
+				}
+				_genKnockout(attributes.teams, sources, attributes.count, attributes.format->legs, &matchdays, attributes.results);
+				for (int k = 0; k < attributes.count; ++k) {
+					free(sources[k]);
+				}
+				free(sources);
 				break;
+			}
 			case FORMAT_ROUND_ROBIN:
 				_genRoundRobin(attributes.teams, attributes.count, 1, attributes.format->legs, &matchdays, attributes.results);
-				_genStandings(&standings, attributes.zones, "Tabla de posiciones");
+				_genStandings(&standings, 0, 0, attributes.zones, "Tabla de posiciones");
 				break;
 		}
 	}
@@ -1502,11 +1638,228 @@ static void _genHeader() {
 		".matchup small{color:#888}\n"
 		".matchup .winner{font-weight:bold}\n"
 		".champion{font-size:1.1rem}\n"
+		"[hidden]{display:none !important}\n"
+		"input.goals{width:2.6rem;padding:.15rem;text-align:center;font:inherit;border:1px solid #bbb;border-radius:3px;-moz-appearance:textfield;appearance:textfield}\n"
+		"input.goals::-webkit-inner-spin-button,input.goals::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}\n"
+		".reset{margin:.2rem 0 .6rem;font:inherit;font-size:.85rem;padding:.25rem .6rem;cursor:pointer}\n"
+		".matchup .side{display:flex;align-items:center;gap:.3rem;margin:.15rem 0}\n"
+		".matchup .side .slot{flex:1}\n"
+		".matchup .legs{display:flex;justify-content:flex-end;gap:.3rem;font-size:.7rem;color:#888}\n"
+		".matchup .legs span{display:inline-block;width:2.6rem;text-align:center}\n"
+		".matchup .penalties{font-size:.8rem;color:#555;text-align:right;margin-top:.2rem}\n"
+		".matchup .penalties input.goals{width:2.2rem}\n"
 		"</style>\n</head>\n<body>\n<h1>Fixtura</h1>\n");
 }
 
+/**
+ * The script of the document: it lets the user write the results in the
+ * inputs, recomputes the standings and advances the winners of the brackets
+ * (as the compiler does with the declared results), and keeps the results
+ * in the local storage of the browser.
+ */
+static const char * _script =
+	"(function () {\n"
+	"\t'use strict';\n"
+	"\tconst prefix = 'fixtura:' + location.pathname + ':';\n"
+	"\tconst number = input => {\n"
+	"\t\tif (input === null) return null;\n"
+	"\t\tconst value = input.value.trim();\n"
+	"\t\tconst goals = parseInt(value, 10);\n"
+	"\t\treturn value === '' || isNaN(goals) || goals < 0 ? null : goals;\n"
+	"\t};\n"
+	"\tconst outcome = (goals, against) => goals > against ? 0 : (goals === against ? 1 : 2);\n"
+	"\tconst letter = group => String.fromCharCode(65 + group % 26);\n"
+	"\n"
+	"\tfunction setup(section, index) {\n"
+	"\t\tconst inputs = Array.from(section.querySelectorAll('input.goals'));\n"
+	"\t\tconst reset = section.querySelector('button.reset');\n"
+	"\t\tif (inputs.length === 0) return;\n"
+	"\t\tif (reset !== null) reset.hidden = false;\n"
+	"\t\tconst key = prefix + index;\n"
+	"\t\tconst points = section.dataset.points.split(',').map(Number);\n"
+	"\t\tconst criteria = section.dataset.tiebreak.split(',').filter(Boolean);\n"
+	"\t\tconst names = {};\n"
+	"\t\tsection.querySelectorAll('table.standings tr[data-team]').forEach(row => {\n"
+	"\t\t\tnames[row.dataset.team] = row.querySelector('td.team').textContent;\n"
+	"\t\t});\n"
+	"\t\tsection.querySelectorAll('.matchup').forEach(matchup => {\n"
+	"\t\t\t['a', 'b'].forEach(side => {\n"
+	"\t\t\t\tconst source = matchup.getAttribute('data-' + side) || '';\n"
+	"\t\t\t\tconst slot = matchup.querySelector('.slot-' + side);\n"
+	"\t\t\t\tif (source.startsWith('t:') && slot !== null) names[source.slice(2)] = slot.textContent;\n"
+	"\t\t\t});\n"
+	"\t\t});\n"
+	"\t\ttry {\n"
+	"\t\t\tconst saved = JSON.parse(localStorage.getItem(key));\n"
+	"\t\t\tif (Array.isArray(saved) && saved.length === inputs.length) {\n"
+	"\t\t\t\tinputs.forEach((input, k) => input.value = saved[k]);\n"
+	"\t\t\t}\n"
+	"\t\t}\n"
+	"\t\tcatch (error) {}\n"
+	"\n"
+	"\t\tfunction rank(teams, matches) {\n"
+	"\t\t\tconst rows = new Map(teams.map(team => [team, {team: team, played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, awayGoals: 0, points: 0}]));\n"
+	"\t\t\tmatches.forEach(match => {\n"
+	"\t\t\t\t[[match.home, match.homeGoals, match.awayGoals, false], [match.away, match.awayGoals, match.homeGoals, true]].forEach(([team, goals, against, away]) => {\n"
+	"\t\t\t\t\tconst row = rows.get(team);\n"
+	"\t\t\t\t\tif (row === undefined) return;\n"
+	"\t\t\t\t\tconst result = outcome(goals, against);\n"
+	"\t\t\t\t\trow.played++;\n"
+	"\t\t\t\t\trow.won += result === 0;\n"
+	"\t\t\t\t\trow.drawn += result === 1;\n"
+	"\t\t\t\t\trow.lost += result === 2;\n"
+	"\t\t\t\t\trow.goalsFor += goals;\n"
+	"\t\t\t\t\trow.goalsAgainst += against;\n"
+	"\t\t\t\t\trow.awayGoals += away ? goals : 0;\n"
+	"\t\t\t\t\trow.points += points[result];\n"
+	"\t\t\t\t});\n"
+	"\t\t\t});\n"
+	"\t\t\tconst headToHead = (a, b) => matches.reduce((difference, match) => {\n"
+	"\t\t\t\tif (match.home === a && match.away === b) return difference + points[outcome(match.homeGoals, match.awayGoals)] - points[outcome(match.awayGoals, match.homeGoals)];\n"
+	"\t\t\t\tif (match.home === b && match.away === a) return difference + points[outcome(match.awayGoals, match.homeGoals)] - points[outcome(match.homeGoals, match.awayGoals)];\n"
+	"\t\t\t\treturn difference;\n"
+	"\t\t\t}, 0);\n"
+	"\t\t\tconst differences = {\n"
+	"\t\t\t\taway: (x, y) => x.awayGoals - y.awayGoals,\n"
+	"\t\t\t\tgd: (x, y) => (x.goalsFor - x.goalsAgainst) - (y.goalsFor - y.goalsAgainst),\n"
+	"\t\t\t\tga: (x, y) => y.goalsAgainst - x.goalsAgainst,\n"
+	"\t\t\t\tgf: (x, y) => x.goalsFor - y.goalsFor,\n"
+	"\t\t\t\th2h: (x, y) => headToHead(x.team, y.team),\n"
+	"\t\t\t\twins: (x, y) => x.won - y.won\n"
+	"\t\t\t};\n"
+	"\t\t\t// Positive if X ranks above Y. Ties keep the declared order (as the compiler does).\n"
+	"\t\t\tconst compare = (x, y) => {\n"
+	"\t\t\t\tif (x.points !== y.points) return x.points - y.points;\n"
+	"\t\t\t\tfor (const criterion of criteria) {\n"
+	"\t\t\t\t\tconst difference = differences[criterion] === undefined ? 0 : differences[criterion](x, y);\n"
+	"\t\t\t\t\tif (difference !== 0) return difference;\n"
+	"\t\t\t\t}\n"
+	"\t\t\t\treturn y.team - x.team;\n"
+	"\t\t\t};\n"
+	"\t\t\tconst list = Array.from(rows.values());\n"
+	"\t\t\tfor (let i = 1; i < list.length; ++i) {\n"
+	"\t\t\t\tconst row = list[i];\n"
+	"\t\t\t\tlet j = i - 1;\n"
+	"\t\t\t\tfor (; 0 <= j && compare(row, list[j]) > 0; --j) list[j + 1] = list[j];\n"
+	"\t\t\t\tlist[j + 1] = row;\n"
+	"\t\t\t}\n"
+	"\t\t\treturn list;\n"
+	"\t\t}\n"
+	"\n"
+	"\t\tfunction tieWinner(matchup, double) {\n"
+	"\t\t\tconst value = name => number(matchup.querySelector('.' + name));\n"
+	"\t\t\tconst legs = double ? ['first', 'second'] : ['first'];\n"
+	"\t\t\tconst goals = ['a', 'b'].map(side => legs.reduce((total, leg) => {\n"
+	"\t\t\t\tconst goals = value(leg + '-' + side);\n"
+	"\t\t\t\treturn total === null || goals === null ? null : total + goals;\n"
+	"\t\t\t}, 0));\n"
+	"\t\t\tconst penalties = matchup.querySelector('.penalties');\n"
+	"\t\t\tconst tied = goals[0] !== null && goals[0] === goals[1];\n"
+	"\t\t\tif (penalties !== null) penalties.hidden = !tied && value('pen-a') === null && value('pen-b') === null;\n"
+	"\t\t\tif (goals[0] === null || goals[1] === null) return 0;\n"
+	"\t\t\tif (goals[0] !== goals[1]) return goals[0] > goals[1] ? 1 : 2;\n"
+	"\t\t\tconst penaltiesA = value('pen-a');\n"
+	"\t\t\tconst penaltiesB = value('pen-b');\n"
+	"\t\t\tif (penaltiesA === null || penaltiesB === null || penaltiesA === penaltiesB) return 0;\n"
+	"\t\t\treturn penaltiesA > penaltiesB ? 1 : 2;\n"
+	"\t\t}\n"
+	"\n"
+	"\t\tfunction update() {\n"
+	"\t\t\tconst groups = {};\n"
+	"\t\t\tsection.querySelectorAll('tr.match').forEach(row => {\n"
+	"\t\t\t\tconst group = groups[row.dataset.group] = groups[row.dataset.group] || {matches: [], total: 0};\n"
+	"\t\t\t\tconst homeGoals = number(row.querySelector('.home-goals'));\n"
+	"\t\t\t\tconst awayGoals = number(row.querySelector('.away-goals'));\n"
+	"\t\t\t\tgroup.total++;\n"
+	"\t\t\t\tif (homeGoals !== null && awayGoals !== null) {\n"
+	"\t\t\t\t\tgroup.matches.push({home: +row.dataset.home, away: +row.dataset.away, homeGoals: homeGoals, awayGoals: awayGoals});\n"
+	"\t\t\t\t}\n"
+	"\t\t\t});\n"
+	"\t\t\tconst rankings = {};\n"
+	"\t\t\tsection.querySelectorAll('table.standings').forEach(table => {\n"
+	"\t\t\t\tconst group = groups[table.dataset.group] || {matches: [], total: 0};\n"
+	"\t\t\t\tconst rows = Array.from(table.querySelectorAll('tr[data-team]'));\n"
+	"\t\t\t\tconst ranked = rank(rows.map(row => +row.dataset.team).sort((x, y) => x - y), group.matches);\n"
+	"\t\t\t\trankings[table.dataset.group] = {order: ranked.map(row => row.team), complete: group.matches.length === group.total};\n"
+	"\t\t\t\trows.forEach((row, k) => {\n"
+	"\t\t\t\t\tconst stats = ranked[k];\n"
+	"\t\t\t\t\tconst cells = row.cells;\n"
+	"\t\t\t\t\trow.dataset.team = stats.team;\n"
+	"\t\t\t\t\tcells[1].textContent = names[stats.team];\n"
+	"\t\t\t\t\t[stats.played, stats.won, stats.drawn, stats.lost, stats.goalsFor, stats.goalsAgainst, stats.goalsFor - stats.goalsAgainst]\n"
+	"\t\t\t\t\t\t.forEach((value, column) => cells[2 + column].textContent = value);\n"
+	"\t\t\t\t\tcells[9].querySelector('strong').textContent = stats.points;\n"
+	"\t\t\t\t});\n"
+	"\t\t\t});\n"
+	"\t\t\tsection.querySelectorAll('.bracket').forEach(bracket => {\n"
+	"\t\t\t\tconst double = bracket.dataset.legs === 'double';\n"
+	"\t\t\t\tconst winners = {};\n"
+	"\t\t\t\tlet last = null;\n"
+	"\t\t\t\tconst resolve = source => {\n"
+	"\t\t\t\t\tconst parts = (source || '').split(':');\n"
+	"\t\t\t\t\tswitch (parts[0]) {\n"
+	"\t\t\t\t\t\tcase 't': return {name: names[parts[1]], known: true};\n"
+	"\t\t\t\t\t\tcase 'g': {\n"
+	"\t\t\t\t\t\t\tconst ranking = rankings[parts[1]];\n"
+	"\t\t\t\t\t\t\treturn ranking !== undefined && ranking.complete\n"
+	"\t\t\t\t\t\t\t\t? {name: names[ranking.order[parts[2] - 1]], known: true}\n"
+	"\t\t\t\t\t\t\t\t: {name: parts[2] + '° Grupo ' + letter(+parts[1]), known: false};\n"
+	"\t\t\t\t\t\t}\n"
+	"\t\t\t\t\t\tcase 'w': return winners[parts[1]] || {name: 'Ganador llave ' + parts[1], known: false};\n"
+	"\t\t\t\t\t\tdefault: return {name: '—', known: false};\n"
+	"\t\t\t\t\t}\n"
+	"\t\t\t\t};\n"
+	"\t\t\t\tbracket.querySelectorAll('.matchup').forEach(matchup => {\n"
+	"\t\t\t\t\tconst tie = matchup.dataset.tie;\n"
+	"\t\t\t\t\tconst a = resolve(matchup.dataset.a);\n"
+	"\t\t\t\t\tconst slotA = matchup.querySelector('.slot-a');\n"
+	"\t\t\t\t\tslotA.textContent = a.name;\n"
+	"\t\t\t\t\tif (matchup.hasAttribute('data-bye')) {\n"
+	"\t\t\t\t\t\tlast = winners[tie] = a;\n"
+	"\t\t\t\t\t\treturn;\n"
+	"\t\t\t\t\t}\n"
+	"\t\t\t\t\tconst b = resolve(matchup.dataset.b);\n"
+	"\t\t\t\t\tconst slotB = matchup.querySelector('.slot-b');\n"
+	"\t\t\t\t\tslotB.textContent = b.name;\n"
+	"\t\t\t\t\tconst winner = tieWinner(matchup, double);\n"
+	"\t\t\t\t\tconst decided = winner !== 0 && a.known && b.known;\n"
+	"\t\t\t\t\tslotA.classList.toggle('winner', decided && winner === 1);\n"
+	"\t\t\t\t\tslotB.classList.toggle('winner', decided && winner === 2);\n"
+	"\t\t\t\t\tlast = winners[tie] = decided ? (winner === 1 ? a : b) : {name: 'Ganador llave ' + tie, known: false};\n"
+	"\t\t\t\t});\n"
+	"\t\t\t\tconst champion = bracket.nextElementSibling;\n"
+	"\t\t\t\tif (champion !== null && champion.classList.contains('champion') && last !== null) {\n"
+	"\t\t\t\t\tchampion.hidden = !last.known;\n"
+	"\t\t\t\t\tchampion.querySelector('strong').textContent = last.known ? last.name : '';\n"
+	"\t\t\t\t}\n"
+	"\t\t\t});\n"
+	"\t\t}\n"
+	"\n"
+	"\t\tsection.addEventListener('input', () => {\n"
+	"\t\t\tupdate();\n"
+	"\t\t\ttry {\n"
+	"\t\t\t\tlocalStorage.setItem(key, JSON.stringify(inputs.map(input => input.value)));\n"
+	"\t\t\t}\n"
+	"\t\t\tcatch (error) {}\n"
+	"\t\t});\n"
+	"\t\tif (reset !== null) {\n"
+	"\t\t\treset.addEventListener('click', () => {\n"
+	"\t\t\t\ttry {\n"
+	"\t\t\t\t\tlocalStorage.removeItem(key);\n"
+	"\t\t\t\t}\n"
+	"\t\t\t\tcatch (error) {}\n"
+	"\t\t\t\tinputs.forEach(input => input.value = input.defaultValue);\n"
+	"\t\t\t\tupdate();\n"
+	"\t\t\t});\n"
+	"\t\t}\n"
+	"\t\tupdate();\n"
+	"\t}\n"
+	"\n"
+	"\tdocument.querySelectorAll('section.tournament').forEach(setup);\n"
+	"})();\n";
+
 static void _genFooter() {
-	_output("\n</body>\n</html>\n");
+	_output("\n<script>\n%r</script>\n</body>\n</html>\n", _script);
 }
 
 /** PUBLIC FUNCTIONS */
