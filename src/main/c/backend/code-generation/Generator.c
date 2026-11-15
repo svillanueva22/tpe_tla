@@ -110,6 +110,37 @@ typedef struct {
 	int eventCapacity;
 } CalendarRun;
 
+/** The teams that play a league in the current season of a federation. */
+typedef struct {
+	Tournament * league;
+	char ** teams;						// Heap-allocated names.
+	int count;
+} Roster;
+
+/**
+ * How a tournament ended in some season of a federation: its standings (the
+ * current table, which may be unfinished) and its champion (provisional, if
+ * some tie is undecided: the first team of the tie advances).
+ */
+typedef struct {
+	Tournament * tournament;
+	int year;
+	char ** names;						// Heap-allocated, in the order of the standings.
+	int * points;
+	int * played;
+	int count;
+	char * champion;					// Heap-allocated, or NULL.
+} Outcome;
+
+/** The state of a federation along its seasons, to move the teams between leagues. */
+typedef struct {
+	Roster * rosters;
+	int rosterCount;
+	Outcome * outcomes;					// In chronological order.
+	int outcomeCount;
+	int outcomeCapacity;
+} Seasons;
+
 /**
  * PRIVATE FUNCTIONS
  */
@@ -117,7 +148,7 @@ typedef struct {
 static void _escape(const char * text);
 static void _genDeclaration(Declaration * declaration);
 static void _genFederation(Federation * federation);
-static void _genTournament(Tournament * tournament, Federation * federation, const int year);
+static void _genTournament(Tournament * tournament, Federation * federation, const int year, Seasons * seasons);
 static void _output(const char * const format, ...);
 static int _teamCount(Tournament * tournament, Federation * federation, const unsigned int depth);
 
@@ -500,6 +531,106 @@ static void _genZoneLegend(List * zones) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Seasons.                                                                   */
+/* -------------------------------------------------------------------------- */
+
+static Roster * _findRoster(Seasons * seasons, const char * name) {
+	if (seasons != NULL) {
+		for (int k = 0; k < seasons->rosterCount; ++k) {
+			if (strcmp(seasons->rosters[k].league->name, name) == 0) {
+				return &seasons->rosters[k];
+			}
+		}
+	}
+	return NULL;
+}
+
+static bool _inRoster(Roster * roster, const char * team) {
+	return _teamIndex(roster->teams, roster->count, team) != -1;
+}
+
+static Outcome * _findOutcome(Seasons * seasons, const char * name, const int year) {
+	if (seasons != NULL) {
+		for (int k = 0; k < seasons->outcomeCount; ++k) {
+			Outcome * outcome = &seasons->outcomes[k];
+			if (outcome->year == year && strcmp(outcome->tournament->name, name) == 0) {
+				return outcome;
+			}
+		}
+	}
+	return NULL;
+}
+
+/** Adds an empty outcome (the pointer is valid until the next addition). */
+static Outcome * _addOutcome(Seasons * seasons, Tournament * tournament, const int year) {
+	if (seasons->outcomeCount == seasons->outcomeCapacity) {
+		seasons->outcomeCapacity = seasons->outcomeCapacity == 0 ? 16 : 2 * seasons->outcomeCapacity;
+		seasons->outcomes = realloc(seasons->outcomes, seasons->outcomeCapacity * sizeof(Outcome));
+	}
+	Outcome * outcome = &seasons->outcomes[seasons->outcomeCount++];
+	*outcome = (Outcome) {
+		.tournament = tournament,
+		.year = year,
+		.names = NULL,
+		.points = NULL,
+		.played = NULL,
+		.count = 0,
+		.champion = NULL
+	};
+	return outcome;
+}
+
+/**
+ * The average of points per match of a team, over the last seasons of the
+ * league of an outcome (up to its year).
+ */
+static double _average(Seasons * seasons, Outcome * outcome, const char * team, const int lastSeasons) {
+	int points = 0;
+	int played = 0;
+	int counted = 0;
+	for (int k = seasons->outcomeCount - 1; 0 <= k && counted < lastSeasons; --k) {
+		Outcome * season = &seasons->outcomes[k];
+		if (season->tournament != outcome->tournament || outcome->year < season->year) {
+			continue;
+		}
+		++counted;
+		const int index = _teamIndex(season->names, season->count, team);
+		if (0 <= index) {
+			points += season->points[index];
+			played += season->played[index];
+		}
+	}
+	return played == 0 ? 0.0 : (double) points / played;
+}
+
+/**
+ * The teams of an outcome, ordered by a ranking: the table, or the average of
+ * points per match (ties keep the order of the table). The caller frees the
+ * array, but not the names.
+ */
+static const char ** _rankedNames(Seasons * seasons, Outcome * outcome, Ranking * ranking) {
+	const char ** names = calloc(outcome->count == 0 ? 1 : outcome->count, sizeof(char *));
+	double * averages = calloc(outcome->count == 0 ? 1 : outcome->count, sizeof(double));
+	for (int k = 0; k < outcome->count; ++k) {
+		names[k] = outcome->names[k];
+		averages[k] = ranking->type == RANKING_AVERAGE ? _average(seasons, outcome, names[k], ranking->seasons) : 0.0;
+	}
+	for (int i = 1; i < outcome->count; ++i) {
+		const char * name = names[i];
+		const double average = averages[i];
+		int j = i - 1;
+		for (; 0 <= j && averages[j] < average; --j) {
+			names[j + 1] = names[j];
+			averages[j + 1] = averages[j];
+		}
+		names[j + 1] = name;
+		averages[j + 1] = average;
+	}
+	free(averages);
+	return names;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Tournament attributes.                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -526,9 +657,10 @@ static int _teamCount(Tournament * tournament, Federation * federation, const un
 
 /**
  * Resolves the teams of a tournament. Teams taken from another tournament are
- * unknown until it ends, so they are named after their position on it.
+ * taken from its outcome, if it was already played in the season; otherwise,
+ * they are unknown until it ends, so they are named after their position on it.
  */
-static void _resolveTeams(Teams * teams, Federation * federation, TournamentAttributes * attributes) {
+static void _resolveTeams(Teams * teams, Federation * federation, const int year, Seasons * seasons, TournamentAttributes * attributes) {
 	if (teams->type == TEAMS_LIST) {
 		attributes->count = teams->names->size;
 		attributes->teams = calloc(attributes->count, sizeof(char *));
@@ -539,22 +671,32 @@ static void _resolveTeams(Teams * teams, Federation * federation, TournamentAttr
 		return;
 	}
 	Tournament * source = _findTournament(teams->sourceTournament, federation);
-	const int sourceCount = source == NULL ? 0 : _teamCount(source, federation, 1);
+	Outcome * outcome = _findOutcome(seasons, teams->sourceTournament, year);
+	if (outcome != NULL && outcome->count == 0) {
+		// A cup has no standings to take the teams from.
+		outcome = NULL;
+	}
+	Roster * roster = _findRoster(seasons, teams->sourceTournament);
+	const int sourceCount = outcome != NULL ? outcome->count
+		: (roster != NULL ? roster->count : (source == NULL ? 0 : _teamCount(source, federation, 1)));
 	int from, to;
 	_selectorRange(teams->selector, sourceCount, &from, &to);
-	attributes->count = sourceCount == 0 ? 0 : to - from + 1;
+	attributes->count = sourceCount == 0 || to < from ? 0 : to - from + 1;
 	attributes->teams = calloc(attributes->count == 0 ? 1 : attributes->count, sizeof(char *));
 	const bool byAverage = teams->selector->ranking->type == RANKING_AVERAGE;
+	const char ** ranked = outcome == NULL ? NULL : _rankedNames(seasons, outcome, teams->selector->ranking);
 	for (int k = 0; k < attributes->count; ++k) {
-		attributes->teams[k] = _newString("%d° %s%s", from + k, teams->sourceTournament, byAverage ? " (promedio)" : "");
+		attributes->teams[k] = ranked != NULL ? concatenate(1, ranked[from - 1 + k])
+			: _newString("%d° %s%s", from + k, teams->sourceTournament, byAverage ? " (promedio)" : "");
 	}
+	free(ranked);
 }
 
 /**
  * Collects the items of a tournament. The results are filtered by season,
  * when the year is known (i.e., inside a federation with calendar).
  */
-static void _resolveAttributes(Tournament * tournament, Federation * federation, const int year, TournamentAttributes * attributes) {
+static void _resolveAttributes(Tournament * tournament, Federation * federation, const int year, Seasons * seasons, TournamentAttributes * attributes) {
 	*attributes = (TournamentAttributes) {
 		.teams = NULL,
 		.count = 0,
@@ -586,7 +728,17 @@ static void _resolveAttributes(Tournament * tournament, Federation * federation,
 				break;
 			case ITEM_TEAMS:
 				if (attributes->teams == NULL) {
-					_resolveTeams(item->teams, federation, attributes);
+					// In a federation, the teams of a league change along the seasons.
+					Roster * roster = _findRoster(seasons, tournament->name);
+					if (roster == NULL) {
+						_resolveTeams(item->teams, federation, year, seasons, attributes);
+						break;
+					}
+					attributes->count = roster->count;
+					attributes->teams = calloc(roster->count == 0 ? 1 : roster->count, sizeof(char *));
+					for (int k = 0; k < roster->count; ++k) {
+						attributes->teams[k] = concatenate(1, roster->teams[k]);
+					}
 				}
 				break;
 			case ITEM_TIEBREAK:
@@ -920,10 +1072,10 @@ static void _genRoundRobin(char ** teams, const int size, const int groups, cons
 				for (int match = 0; match < perRound; ++match) {
 					Pairing pairing = pairings[round * perRound + match];
 					if (pairing.home < 0 && 0 <= pairing.away) {
-						_output("<p class=\"bye\">Libre: %s</p>", teams[group * size + pairing.away]);
+						_output("<p class=\"bye\" data-team=\"%d\">Libre: %s</p>", group * size + pairing.away, teams[group * size + pairing.away]);
 					}
 					else if (pairing.away < 0 && 0 <= pairing.home) {
-						_output("<p class=\"bye\">Libre: %s</p>", teams[group * size + pairing.home]);
+						_output("<p class=\"bye\" data-team=\"%d\">Libre: %s</p>", group * size + pairing.home, teams[group * size + pairing.home]);
 					}
 				}
 			}
@@ -1065,14 +1217,19 @@ static void _genTieInputs(List * results, const char * a, const char * b, const 
  * results allow to know them; otherwise, a placeholder takes their slot. Each
  * slot also carries its source, so that the script can resolve it again: an
  * entrant ("t:K" or "g:G:P", as given) or the winner of a tie ("w:N").
+ *
+ * Besides, it plays the bracket with the provisional entrants (e.g., the
+ * current leaders of the groups), where the first team of an undecided tie
+ * advances, and returns the provisional champion (the caller frees it).
  */
-static void _genKnockout(char ** entrants, char ** sources, const int count, const Legs legs, Matchdays * matchdays, List * results) {
+static char * _genKnockout(char ** entrants, char ** sources, char ** provisionals, const int count, const Legs legs, Matchdays * matchdays, List * results) {
 	_output("<h4>Llaves</h4>");
 	if (count < 2) {
 		if (count == 1) {
 			_output("<p class=\"champion\">Clasificado directo: <strong>%s</strong></p>", entrants[0]);
+			return concatenate(1, provisionals[0]);
 		}
-		return;
+		return NULL;
 	}
 	int size = 1;
 	while (size < count) {
@@ -1082,14 +1239,17 @@ static void _genKnockout(char ** entrants, char ** sources, const int count, con
 	List * owned = createList();
 	const char ** slots = calloc(size, sizeof(char *));
 	const char ** slotSources = calloc(size, sizeof(char *));
+	const char ** provisionalSlots = calloc(size, sizeof(char *));
 	bool * decided = calloc(size, sizeof(bool));
 	for (int k = 0; k < byes; ++k) {
 		slots[2 * k] = entrants[k];
 		slotSources[2 * k] = sources[k];
+		provisionalSlots[2 * k] = provisionals[k];
 	}
 	for (int k = byes; k < count; ++k) {
 		slots[2 * byes + (k - byes)] = entrants[k];
 		slotSources[2 * byes + (k - byes)] = sources[k];
+		provisionalSlots[2 * byes + (k - byes)] = provisionals[k];
 	}
 	for (int k = 0; k < size; ++k) {
 		decided[k] = slots[k] != NULL;
@@ -1138,6 +1298,14 @@ static void _genKnockout(char ** entrants, char ** sources, const int count, con
 				winnerSource = source;
 			}
 			_output("</div>");
+			const char * provisionalA = provisionalSlots[2 * match];
+			const char * provisionalB = provisionalSlots[2 * match + 1];
+			if (provisionalA == NULL || provisionalB == NULL) {
+				provisionalSlots[match] = provisionalA == NULL ? provisionalB : provisionalA;
+			}
+			else {
+				provisionalSlots[match] = _tieWinner(results, provisionalA, provisionalB, legs) == 2 ? provisionalB : provisionalA;
+			}
 			slots[match] = winner;
 			slotSources[match] = winnerSource;
 			decided[match] = winnerDecided;
@@ -1147,10 +1315,13 @@ static void _genKnockout(char ** entrants, char ** sources, const int count, con
 	_output("</div>");
 	const bool hasChampion = decided[0] && slots[0] != NULL;
 	_output("<p class=\"champion\"%r>Campeón: <strong>%s</strong></p>", hasChampion ? "" : " hidden", hasChampion ? slots[0] : "");
+	char * champion = provisionalSlots[0] == NULL ? NULL : concatenate(1, provisionalSlots[0]);
 	free(decided);
+	free(provisionalSlots);
 	free(slotSources);
 	free(slots);
 	destroyList(owned, free);
+	return champion;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1162,24 +1333,25 @@ static void _genKnockout(char ** entrants, char ** sources, const int count, con
  * qualified teams of consecutive groups cross each other (e.g., "1° Grupo A"
  * against "2° Grupo B", and "2° Grupo A" against "1° Grupo B").
  */
-static void _genGroups(TournamentAttributes * attributes, Matchdays * matchdays) {
+static char * _genGroups(TournamentAttributes * attributes, Matchdays * matchdays) {
 	Format * format = attributes->format;
 	const int size = format->groupSize <= 0 ? attributes->count : format->groupSize;
 	const int groups = size == 0 ? 0 : attributes->count / size;
 	const int advancing = _clamp(format->advancing, 0, size);
 	if (groups == 0) {
-		return;
+		return NULL;
 	}
 	_output("<h4>Grupos</h4><div class=\"groups\">");
 	for (int group = 0; group < groups; ++group) {
 		_output("<div class=\"group-box\"><h5>Grupo %r</h5><ul>", (char[]) {_groupLetter(group), '\0'});
 		for (int k = 0; k < size; ++k) {
-			_output("<li>%s</li>", attributes->teams[group * size + k]);
+			_output("<li data-team=\"%d\">%s</li>", group * size + k, attributes->teams[group * size + k]);
 		}
 		_output("</ul></div>");
 	}
 	_output("</div>");
 	_genRoundRobin(attributes->teams, size, groups, LEGS_SINGLE, matchdays, attributes->results);
+	Row ** rows = calloc(groups, sizeof(Row *));
 	for (int group = 0; group < groups; ++group) {
 		Standings standings = {
 			.teams = attributes->teams + group * size,
@@ -1191,29 +1363,40 @@ static void _genGroups(TournamentAttributes * attributes, Matchdays * matchdays)
 		char * title = _newString("Posiciones — Grupo %c", _groupLetter(group));
 		_genStandings(&standings, group, group * size, NULL, title);
 		free(title);
+		rows[group] = _computeStandings(&standings);
 	}
 	const int count = groups * advancing;
 	char ** entrants = calloc(count == 0 ? 1 : count, sizeof(char *));
 	char ** sources = calloc(count == 0 ? 1 : count, sizeof(char *));
+	char ** provisionals = calloc(count == 0 ? 1 : count, sizeof(char *));
 	int k = 0;
 	for (int group = 0; group < groups; group += 2) {
 		const bool paired = group + 1 < groups;
 		for (int position = 1; position <= advancing; ++position) {
 			sources[k] = _newString("g:%d:%d", group, position);
+			provisionals[k] = attributes->teams[group * size + rows[group][position - 1].team];
 			entrants[k++] = _newString("%d° Grupo %c", position, _groupLetter(group));
 			if (paired) {
-				sources[k] = _newString("g:%d:%d", group + 1, advancing + 1 - position);
-				entrants[k++] = _newString("%d° Grupo %c", advancing + 1 - position, _groupLetter(group + 1));
+				const int other = advancing + 1 - position;
+				sources[k] = _newString("g:%d:%d", group + 1, other);
+				provisionals[k] = attributes->teams[(group + 1) * size + rows[group + 1][other - 1].team];
+				entrants[k++] = _newString("%d° Grupo %c", other, _groupLetter(group + 1));
 			}
 		}
 	}
-	_genKnockout(entrants, sources, k, format->legs, matchdays, attributes->results);
+	char * champion = _genKnockout(entrants, sources, provisionals, k, format->legs, matchdays, attributes->results);
 	for (int j = 0; j < k; ++j) {
 		free(entrants[j]);
 		free(sources[j]);
 	}
+	for (int group = 0; group < groups; ++group) {
+		free(rows[group]);
+	}
+	free(rows);
 	free(entrants);
 	free(sources);
+	free(provisionals);
+	return champion;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1267,12 +1450,98 @@ static void _genRankingAttributes(TournamentAttributes * attributes) {
 	_output("\"");
 }
 
-static void _genTournament(Tournament * tournament, Federation * federation, const int year) {
+/** Outputs a JSON string (safe inside a "script" element). */
+static void _genJsonString(const char * text) {
+	fputc('"', stdout);
+	for (; *text != '\0'; ++text) {
+		const unsigned char character = (unsigned char) *text;
+		if (character == '"' || character == '\\') {
+			fprintf(stdout, "\\%c", character);
+		}
+		else if (character < 0x20 || character == '<' || character == '>' || character == '&') {
+			fprintf(stdout, "\\u%04x", character);
+		}
+		else {
+			fputc(character, stdout);
+		}
+	}
+	fputc('"', stdout);
+	fflush(stdout);
+}
+
+/** Outputs a selector as JSON, for the script (see "_selectorRange"). */
+static void _genJsonSelector(Selector * selector) {
+	switch (selector->type) {
+		case SELECTOR_BOTTOM:
+			_output("{\"type\":\"bottom\",\"count\":%d", selector->count);
+			break;
+		case SELECTOR_RANGE:
+			_output("{\"type\":\"range\",\"from\":[%r,%d],\"to\":[%r,%d]",
+				selector->from->type == POSITION_FROM_TOP ? "true" : "false", selector->from->value,
+				selector->to->type == POSITION_FROM_TOP ? "true" : "false", selector->to->value);
+			break;
+		case SELECTOR_TOP:
+			_output("{\"type\":\"top\",\"count\":%d", selector->count);
+			break;
+	}
+	_output(",\"average\":%d}", selector->ranking->type == RANKING_AVERAGE ? selector->ranking->seasons : 0);
+}
+
+/**
+ * Outputs the attributes that the script needs to move the teams along the
+ * seasons of a federation: the tournament, its year, and where its teams come
+ * from (the roster of the league, or another tournament).
+ */
+static void _genSeasonAttributes(Tournament * tournament, const int year, Seasons * seasons) {
+	if (seasons == NULL) {
+		return;
+	}
+	_output(" data-tournament=\"%s\" data-year=\"%d\"", tournament->name, year);
+	if (_findRoster(seasons, tournament->name) != NULL) {
+		_output(" data-league");
+		return;
+	}
+	for (ListNode * node = tournament->items->first; node != NULL; node = node->next) {
+		TournamentItem * item = node->element;
+		if (item->type == ITEM_TEAMS && item->teams->type == TEAMS_FROM_TOURNAMENT) {
+			_output(" data-teams-from=\"%s\" data-selector='", item->teams->sourceTournament);
+			_genJsonSelector(item->teams->selector);
+			_output("'");
+			return;
+		}
+	}
+}
+
+/** Records how a tournament ended, for the movement between seasons. */
+static void _recordOutcome(Seasons * seasons, Tournament * tournament, const int year, Standings * standings, char * champion) {
+	Outcome * outcome = _addOutcome(seasons, tournament, year);
+	outcome->champion = champion;
+	if (standings == NULL) {
+		return;
+	}
+	Row * rows = _computeStandings(standings);
+	outcome->count = standings->count;
+	outcome->names = calloc(standings->count == 0 ? 1 : standings->count, sizeof(char *));
+	outcome->points = calloc(standings->count == 0 ? 1 : standings->count, sizeof(int));
+	outcome->played = calloc(standings->count == 0 ? 1 : standings->count, sizeof(int));
+	for (int k = 0; k < standings->count; ++k) {
+		outcome->names[k] = concatenate(1, standings->teams[rows[k].team]);
+		outcome->points[k] = rows[k].points;
+		outcome->played[k] = rows[k].played;
+	}
+	if (champion == NULL && 0 < standings->count) {
+		outcome->champion = concatenate(1, outcome->names[0]);
+	}
+	free(rows);
+}
+
+static void _genTournament(Tournament * tournament, Federation * federation, const int year, Seasons * seasons) {
 	TournamentAttributes attributes;
-	_resolveAttributes(tournament, federation, year, &attributes);
+	_resolveAttributes(tournament, federation, year, seasons, &attributes);
 	Matchdays matchdays = _startMatchdays(attributes.schedule, year);
 	_output("<section class=\"tournament\"");
 	_genRankingAttributes(&attributes);
+	_genSeasonAttributes(tournament, year, seasons);
 	_output("><h3>%s", tournament->name);
 	if (tournament->type == KIND_LEAGUE) {
 		_output(" <small class=\"tier\">división %d</small>", tournament->tier);
@@ -1296,16 +1565,18 @@ static void _genTournament(Tournament * tournament, Federation * federation, con
 			.tiebreak = attributes.tiebreak
 		};
 		_output("<button class=\"reset\" type=\"button\" hidden>Restaurar resultados declarados</button>");
+		char * champion = NULL;
+		bool hasStandings = false;
 		switch (attributes.format->type) {
 			case FORMAT_GROUPS:
-				_genGroups(&attributes, &matchdays);
+				champion = _genGroups(&attributes, &matchdays);
 				break;
 			case FORMAT_KNOCKOUT: {
 				char ** sources = calloc(attributes.count == 0 ? 1 : attributes.count, sizeof(char *));
 				for (int k = 0; k < attributes.count; ++k) {
 					sources[k] = _newString("t:%d", k);
 				}
-				_genKnockout(attributes.teams, sources, attributes.count, attributes.format->legs, &matchdays, attributes.results);
+				champion = _genKnockout(attributes.teams, sources, attributes.teams, attributes.count, attributes.format->legs, &matchdays, attributes.results);
 				for (int k = 0; k < attributes.count; ++k) {
 					free(sources[k]);
 				}
@@ -1315,7 +1586,14 @@ static void _genTournament(Tournament * tournament, Federation * federation, con
 			case FORMAT_ROUND_ROBIN:
 				_genRoundRobin(attributes.teams, attributes.count, 1, attributes.format->legs, &matchdays, attributes.results);
 				_genStandings(&standings, 0, 0, attributes.zones, "Tabla de posiciones");
+				hasStandings = true;
 				break;
+		}
+		if (seasons != NULL) {
+			_recordOutcome(seasons, tournament, year, hasStandings ? &standings : NULL, champion);
+		}
+		else {
+			free(champion);
 		}
 	}
 	_genResults(attributes.results);
@@ -1514,10 +1792,262 @@ static void _genMovement(Movement * movement) {
 	}
 }
 
+/** Finds a zone of a tournament, declared or from a template, by its name. */
+static Zone * _findZone(Tournament * tournament, Federation * federation, const char * name) {
+	for (ListNode * node = tournament->items->first; node != NULL; node = node->next) {
+		TournamentItem * item = node->element;
+		if (item->type == ITEM_ZONE && strcmp(item->zone->name, name) == 0) {
+			return item->zone;
+		}
+		if (item->type == ITEM_USE && item->use->type == TEMPLATE_ZONES) {
+			Template * templateDefinition = _findTemplate(item->use->name, item->use->type, federation);
+			if (templateDefinition == NULL) {
+				continue;
+			}
+			for (ListNode * zone = templateDefinition->zones->first; zone != NULL; zone = zone->next) {
+				if (strcmp(((Zone *) zone->element)->name, name) == 0) {
+					return zone->element;
+				}
+			}
+		}
+	}
+	return NULL;
+}
+
+/** The selector of a movement rule by selection or by zone, or NULL. */
+static Selector * _ruleSelector(MovementRule * rule, Federation * federation) {
+	if (rule->subject->type == SUBJECT_SELECTION) {
+		return rule->subject->selector;
+	}
+	if (rule->subject->type != SUBJECT_ZONE) {
+		return NULL;
+	}
+	Tournament * league = _findTournament(rule->fromLeague, federation);
+	Zone * zone = league == NULL ? NULL : _findZone(league, federation, rule->subject->name);
+	return zone == NULL ? NULL : zone->selector;
+}
+
+/**
+ * The teams that a movement rule selects at the end of a season (the caller
+ * frees the array, but not the names).
+ */
+static const char ** _selectedTeams(Seasons * seasons, Federation * federation, MovementRule * rule, const int year, int * count) {
+	*count = 0;
+	Outcome * league = _findOutcome(seasons, rule->fromLeague, year);
+	const int capacity = league == NULL || league->count == 0 ? 1 : league->count;
+	const char ** teams = calloc(capacity, sizeof(char *));
+	if (league == NULL) {
+		return teams;
+	}
+	if (rule->subject->type == SUBJECT_TEAM) {
+		teams[(*count)++] = rule->subject->name;
+		return teams;
+	}
+	if (rule->subject->type == SUBJECT_WINNER) {
+		Outcome * cup = _findOutcome(seasons, rule->subject->name, year);
+		if (cup != NULL && cup->champion != NULL) {
+			teams[(*count)++] = cup->champion;
+		}
+		return teams;
+	}
+	Selector * selector = _ruleSelector(rule, federation);
+	if (selector == NULL || league->count == 0) {
+		return teams;
+	}
+	const char ** ranked = _rankedNames(seasons, league, selector->ranking);
+	int from, to;
+	_selectorRange(selector, league->count, &from, &to);
+	for (int k = from; k <= to; ++k) {
+		teams[(*count)++] = ranked[k - 1];
+	}
+	free(ranked);
+	return teams;
+}
+
+/**
+ * Moves the teams between the leagues at the end of a season, according to
+ * the movement rules, over the current tables. Only the leagues played in
+ * the season take part, every team moves at most once, and the arriving
+ * teams join at the end of their new league.
+ */
+static void _applyMovement(Seasons * seasons, Federation * federation, const int year) {
+	int capacity = 1;
+	for (int k = 0; k < seasons->rosterCount; ++k) {
+		capacity += seasons->rosters[k].count;
+	}
+	char ** moved = calloc(capacity, sizeof(char *));
+	Roster ** origins = calloc(capacity, sizeof(Roster *));
+	Roster ** targets = calloc(capacity, sizeof(Roster *));
+	int moves = 0;
+	for (ListNode * node = federation->items->first; node != NULL; node = node->next) {
+		FederationItem * item = node->element;
+		if (item->type != FEDERATION_ITEM_MOVEMENT) {
+			continue;
+		}
+		for (ListNode * ruleNode = item->movement->rules->first; ruleNode != NULL; ruleNode = ruleNode->next) {
+			MovementRule * rule = ruleNode->element;
+			Roster * origin = _findRoster(seasons, rule->fromLeague);
+			Roster * target = _findRoster(seasons, rule->toLeague);
+			if (origin == NULL || target == NULL) {
+				continue;
+			}
+			int count;
+			const char ** teams = _selectedTeams(seasons, federation, rule, year, &count);
+			for (int k = 0; k < count && moves < capacity; ++k) {
+				if (_inRoster(origin, teams[k]) && _teamIndex(moved, moves, teams[k]) == -1) {
+					moved[moves] = concatenate(1, teams[k]);
+					origins[moves] = origin;
+					targets[moves++] = target;
+				}
+			}
+			free(teams);
+		}
+	}
+	char *** rebuilt = calloc(seasons->rosterCount == 0 ? 1 : seasons->rosterCount, sizeof(char **));
+	int * counts = calloc(seasons->rosterCount == 0 ? 1 : seasons->rosterCount, sizeof(int));
+	for (int r = 0; r < seasons->rosterCount; ++r) {
+		Roster * roster = &seasons->rosters[r];
+		rebuilt[r] = calloc(roster->count + moves + 1, sizeof(char *));
+		for (int k = 0; k < roster->count; ++k) {
+			const int move = _teamIndex(moved, moves, roster->teams[k]);
+			if (move == -1 || origins[move] != roster) {
+				rebuilt[r][counts[r]++] = concatenate(1, roster->teams[k]);
+			}
+		}
+		for (int move = 0; move < moves; ++move) {
+			if (targets[move] == roster) {
+				rebuilt[r][counts[r]++] = concatenate(1, moved[move]);
+			}
+		}
+	}
+	for (int r = 0; r < seasons->rosterCount; ++r) {
+		Roster * roster = &seasons->rosters[r];
+		for (int k = 0; k < roster->count; ++k) {
+			free(roster->teams[k]);
+		}
+		free(roster->teams);
+		roster->teams = rebuilt[r];
+		roster->count = counts[r];
+	}
+	for (int move = 0; move < moves; ++move) {
+		free(moved[move]);
+	}
+	free(rebuilt);
+	free(counts);
+	free(moved);
+	free(origins);
+	free(targets);
+}
+
+/** The initial rosters: the declared teams of every league of the federation. */
+static Seasons _startSeasons(Federation * federation) {
+	Seasons seasons = {
+		.rosters = NULL,
+		.rosterCount = 0,
+		.outcomes = NULL,
+		.outcomeCount = 0,
+		.outcomeCapacity = 0
+	};
+	seasons.rosters = calloc(federation->items->size == 0 ? 1 : federation->items->size, sizeof(Roster));
+	for (ListNode * node = federation->items->first; node != NULL; node = node->next) {
+		FederationItem * item = node->element;
+		if (item->type != FEDERATION_ITEM_TOURNAMENT || item->tournament->type != KIND_LEAGUE) {
+			continue;
+		}
+		for (ListNode * teamsNode = item->tournament->items->first; teamsNode != NULL; teamsNode = teamsNode->next) {
+			TournamentItem * teamsItem = teamsNode->element;
+			if (teamsItem->type != ITEM_TEAMS || teamsItem->teams->type != TEAMS_LIST) {
+				continue;
+			}
+			Roster * roster = &seasons.rosters[seasons.rosterCount++];
+			roster->league = item->tournament;
+			roster->count = teamsItem->teams->names->size;
+			roster->teams = calloc(roster->count == 0 ? 1 : roster->count, sizeof(char *));
+			int k = 0;
+			for (ListNode * name = teamsItem->teams->names->first; name != NULL; name = name->next) {
+				roster->teams[k++] = concatenate(1, (char *) name->element);
+			}
+			break;
+		}
+	}
+	return seasons;
+}
+
+static void _freeSeasons(Seasons * seasons) {
+	for (int r = 0; r < seasons->rosterCount; ++r) {
+		for (int k = 0; k < seasons->rosters[r].count; ++k) {
+			free(seasons->rosters[r].teams[k]);
+		}
+		free(seasons->rosters[r].teams);
+	}
+	free(seasons->rosters);
+	for (int k = 0; k < seasons->outcomeCount; ++k) {
+		Outcome * outcome = &seasons->outcomes[k];
+		for (int j = 0; j < outcome->count; ++j) {
+			free(outcome->names[j]);
+		}
+		free(outcome->names);
+		free(outcome->points);
+		free(outcome->played);
+		free(outcome->champion);
+	}
+	free(seasons->outcomes);
+}
+
+/**
+ * Outputs the initial rosters and the movement rules as JSON, so that the
+ * script can move the teams along the seasons (as "_applyMovement" does).
+ */
+static void _genFederationData(Seasons * seasons, Federation * federation) {
+	_output("<script type=\"application/json\" class=\"federation-data\">{\"rosters\":{");
+	for (int r = 0; r < seasons->rosterCount; ++r) {
+		Roster * roster = &seasons->rosters[r];
+		_output("%r", r == 0 ? "" : ",");
+		_genJsonString(roster->league->name);
+		_output(":[");
+		for (int k = 0; k < roster->count; ++k) {
+			_output("%r", k == 0 ? "" : ",");
+			_genJsonString(roster->teams[k]);
+		}
+		_output("]");
+	}
+	_output("},\"rules\":[");
+	bool first = true;
+	for (ListNode * node = federation->items->first; node != NULL; node = node->next) {
+		FederationItem * item = node->element;
+		if (item->type != FEDERATION_ITEM_MOVEMENT) {
+			continue;
+		}
+		for (ListNode * ruleNode = item->movement->rules->first; ruleNode != NULL; ruleNode = ruleNode->next) {
+			MovementRule * rule = ruleNode->element;
+			Selector * selector = _ruleSelector(rule, federation);
+			if (selector == NULL && (rule->subject->type == SUBJECT_SELECTION || rule->subject->type == SUBJECT_ZONE)) {
+				continue;
+			}
+			_output("%r{\"from\":", first ? "" : ",");
+			_genJsonString(rule->fromLeague);
+			_output(",\"to\":");
+			_genJsonString(rule->toLeague);
+			if (rule->subject->type == SUBJECT_TEAM || rule->subject->type == SUBJECT_WINNER) {
+				_output(",\"%r\":", rule->subject->type == SUBJECT_TEAM ? "team" : "winner");
+				_genJsonString(rule->subject->name);
+			}
+			else {
+				_output(",\"selector\":");
+				_genJsonSelector(selector);
+			}
+			_output("}");
+			first = false;
+		}
+	}
+	_output("]}</script>");
+}
+
 /**
  * Outputs a federation. With a calendar, it is evaluated year by year (the
  * "current year" of every statement), collecting the hosted tournaments,
- * which are then generated grouped by year.
+ * which are then generated grouped by year. Between consecutive seasons, the
+ * teams move between the leagues according to the movement rules.
  */
 static void _genFederation(Federation * federation) {
 	Calendar * calendar = NULL;
@@ -1545,7 +2075,7 @@ static void _genFederation(Federation * federation) {
 		for (ListNode * node = federation->items->first; node != NULL; node = node->next) {
 			FederationItem * item = node->element;
 			if (item->type == FEDERATION_ITEM_TOURNAMENT) {
-				_genTournament(item->tournament, federation, 0);
+				_genTournament(item->tournament, federation, 0, NULL);
 			}
 		}
 		_output("</section>");
@@ -1563,12 +2093,14 @@ static void _genFederation(Federation * federation) {
 	for (int year = calendar->fromYear; year <= calendar->toYear; ++year) {
 		_executeStatements(&run, calendar->body, year);
 	}
+	Seasons seasons = _startSeasons(federation);
+	_genFederationData(&seasons, federation);
 	for (int year = calendar->fromYear; year <= calendar->toYear; ++year) {
 		_output("<div class=\"season\"><h2 class=\"year\">Temporada %d</h2>", year);
 		bool empty = true;
 		for (int k = 0; k < run.eventCount; ++k) {
 			if (run.events[k].year == year) {
-				_genTournament(run.events[k].tournament, federation, year);
+				_genTournament(run.events[k].tournament, federation, year, &seasons);
 				empty = false;
 			}
 		}
@@ -1576,7 +2108,9 @@ static void _genFederation(Federation * federation) {
 			_output("<p class=\"meta\">Sin torneos programados.</p>");
 		}
 		_output("</div>");
+		_applyMovement(&seasons, federation, year);
 	}
+	_freeSeasons(&seasons);
 	free(run.events);
 	_output("</section>");
 }
@@ -1590,7 +2124,7 @@ static void _genDeclaration(Declaration * declaration) {
 			// Templates only generate output through the tournaments that use them.
 			break;
 		case DECLARATION_TOURNAMENT:
-			_genTournament(declaration->tournament, NULL, 0);
+			_genTournament(declaration->tournament, NULL, 0, NULL);
 			break;
 	}
 }
@@ -1673,8 +2207,8 @@ static const char * _script =
 	"\tfunction setup(section, index) {\n"
 	"\t\tconst inputs = Array.from(section.querySelectorAll('input.goals'));\n"
 	"\t\tconst reset = section.querySelector('button.reset');\n"
-	"\t\tif (inputs.length === 0) return;\n"
-	"\t\tif (reset !== null) reset.hidden = false;\n"
+	"\t\tif (inputs.length === 0 && section.querySelector('table.standings, .bracket') === null) return null;\n"
+	"\t\tif (reset !== null && inputs.length !== 0) reset.hidden = false;\n"
 	"\t\tconst key = prefix + index;\n"
 	"\t\tconst points = section.dataset.points.split(',').map(Number);\n"
 	"\t\tconst criteria = section.dataset.tiebreak.split(',').filter(Boolean);\n"
@@ -1689,6 +2223,8 @@ static const char * _script =
 	"\t\t\t\tif (source.startsWith('t:') && slot !== null) names[source.slice(2)] = slot.textContent;\n"
 	"\t\t\t});\n"
 	"\t\t});\n"
+	"\t\tconst teamCount = Object.keys(names).length;\n"
+	"\t\tlet state = {rows: [], champion: null};\n"
 	"\t\ttry {\n"
 	"\t\t\tconst saved = JSON.parse(localStorage.getItem(key));\n"
 	"\t\t\tif (Array.isArray(saved) && saved.length === inputs.length) {\n"
@@ -1765,6 +2301,12 @@ static const char * _script =
 	"\t\t}\n"
 	"\n"
 	"\t\tfunction update() {\n"
+	"\t\t\tsection.querySelectorAll('tr.match').forEach(row => {\n"
+	"\t\t\t\trow.querySelector('td.home').textContent = names[row.dataset.home];\n"
+	"\t\t\t\trow.querySelector('td.away').textContent = names[row.dataset.away];\n"
+	"\t\t\t});\n"
+	"\t\t\tsection.querySelectorAll('.bye[data-team]').forEach(bye => bye.textContent = 'Libre: ' + names[bye.dataset.team]);\n"
+	"\t\t\tsection.querySelectorAll('li[data-team]').forEach(item => item.textContent = names[item.dataset.team]);\n"
 	"\t\t\tconst groups = {};\n"
 	"\t\t\tsection.querySelectorAll('tr.match').forEach(row => {\n"
 	"\t\t\t\tconst group = groups[row.dataset.group] = groups[row.dataset.group] || {matches: [], total: 0};\n"
@@ -1776,11 +2318,13 @@ static const char * _script =
 	"\t\t\t\t}\n"
 	"\t\t\t});\n"
 	"\t\t\tconst rankings = {};\n"
+	"\t\t\tstate = {rows: [], champion: null};\n"
 	"\t\t\tsection.querySelectorAll('table.standings').forEach(table => {\n"
 	"\t\t\t\tconst group = groups[table.dataset.group] || {matches: [], total: 0};\n"
 	"\t\t\t\tconst rows = Array.from(table.querySelectorAll('tr[data-team]'));\n"
 	"\t\t\t\tconst ranked = rank(rows.map(row => +row.dataset.team).sort((x, y) => x - y), group.matches);\n"
 	"\t\t\t\trankings[table.dataset.group] = {order: ranked.map(row => row.team), complete: group.matches.length === group.total};\n"
+	"\t\t\t\tstate.rows = ranked.map(row => ({name: names[row.team], points: row.points, played: row.played}));\n"
 	"\t\t\t\trows.forEach((row, k) => {\n"
 	"\t\t\t\t\tconst stats = ranked[k];\n"
 	"\t\t\t\t\tconst cells = row.cells;\n"
@@ -1791,34 +2335,43 @@ static const char * _script =
 	"\t\t\t\t\tcells[9].querySelector('strong').textContent = stats.points;\n"
 	"\t\t\t\t});\n"
 	"\t\t\t});\n"
+	"\t\t\t// Only the leagues have standings to take teams from (the groups of a cup do not count).\n"
+	"\t\t\tif (section.querySelector('.bracket') !== null) state.rows = [];\n"
+	"\t\t\tif (state.rows.length !== 0) state.champion = state.rows[0].name;\n"
 	"\t\t\tsection.querySelectorAll('.bracket').forEach(bracket => {\n"
 	"\t\t\t\tconst double = bracket.dataset.legs === 'double';\n"
 	"\t\t\t\tconst winners = {};\n"
+	"\t\t\t\t// The provisional bracket (for the movement): current positions, and the first team of undecided ties.\n"
+	"\t\t\t\tconst provisionals = {};\n"
 	"\t\t\t\tlet last = null;\n"
-	"\t\t\t\tconst resolve = source => {\n"
+	"\t\t\t\tlet provisional = null;\n"
+	"\t\t\t\tconst resolve = (source, final) => {\n"
 	"\t\t\t\t\tconst parts = (source || '').split(':');\n"
 	"\t\t\t\t\tswitch (parts[0]) {\n"
 	"\t\t\t\t\t\tcase 't': return {name: names[parts[1]], known: true};\n"
 	"\t\t\t\t\t\tcase 'g': {\n"
 	"\t\t\t\t\t\t\tconst ranking = rankings[parts[1]];\n"
-	"\t\t\t\t\t\t\treturn ranking !== undefined && ranking.complete\n"
+	"\t\t\t\t\t\t\treturn ranking !== undefined && (ranking.complete || !final)\n"
 	"\t\t\t\t\t\t\t\t? {name: names[ranking.order[parts[2] - 1]], known: true}\n"
 	"\t\t\t\t\t\t\t\t: {name: parts[2] + '° Grupo ' + letter(+parts[1]), known: false};\n"
 	"\t\t\t\t\t\t}\n"
-	"\t\t\t\t\t\tcase 'w': return winners[parts[1]] || {name: 'Ganador llave ' + parts[1], known: false};\n"
+	"\t\t\t\t\t\tcase 'w': return (final ? winners : provisionals)[parts[1]] || {name: 'Ganador llave ' + parts[1], known: false};\n"
 	"\t\t\t\t\t\tdefault: return {name: '—', known: false};\n"
 	"\t\t\t\t\t}\n"
 	"\t\t\t\t};\n"
 	"\t\t\t\tbracket.querySelectorAll('.matchup').forEach(matchup => {\n"
 	"\t\t\t\t\tconst tie = matchup.dataset.tie;\n"
-	"\t\t\t\t\tconst a = resolve(matchup.dataset.a);\n"
+	"\t\t\t\t\tconst a = resolve(matchup.dataset.a, true);\n"
+	"\t\t\t\t\tconst provisionalA = resolve(matchup.dataset.a, false);\n"
 	"\t\t\t\t\tconst slotA = matchup.querySelector('.slot-a');\n"
 	"\t\t\t\t\tslotA.textContent = a.name;\n"
 	"\t\t\t\t\tif (matchup.hasAttribute('data-bye')) {\n"
 	"\t\t\t\t\t\tlast = winners[tie] = a;\n"
+	"\t\t\t\t\t\tprovisional = provisionals[tie] = provisionalA;\n"
 	"\t\t\t\t\t\treturn;\n"
 	"\t\t\t\t\t}\n"
-	"\t\t\t\t\tconst b = resolve(matchup.dataset.b);\n"
+	"\t\t\t\t\tconst b = resolve(matchup.dataset.b, true);\n"
+	"\t\t\t\t\tconst provisionalB = resolve(matchup.dataset.b, false);\n"
 	"\t\t\t\t\tconst slotB = matchup.querySelector('.slot-b');\n"
 	"\t\t\t\t\tslotB.textContent = b.name;\n"
 	"\t\t\t\t\tconst winner = tieWinner(matchup, double);\n"
@@ -1826,17 +2379,29 @@ static const char * _script =
 	"\t\t\t\t\tslotA.classList.toggle('winner', decided && winner === 1);\n"
 	"\t\t\t\t\tslotB.classList.toggle('winner', decided && winner === 2);\n"
 	"\t\t\t\t\tlast = winners[tie] = decided ? (winner === 1 ? a : b) : {name: 'Ganador llave ' + tie, known: false};\n"
+	"\t\t\t\t\tprovisional = provisionals[tie] = winner === 2 ? provisionalB : provisionalA;\n"
 	"\t\t\t\t});\n"
 	"\t\t\t\tconst champion = bracket.nextElementSibling;\n"
 	"\t\t\t\tif (champion !== null && champion.classList.contains('champion') && last !== null) {\n"
 	"\t\t\t\t\tchampion.hidden = !last.known;\n"
 	"\t\t\t\t\tchampion.querySelector('strong').textContent = last.known ? last.name : '';\n"
 	"\t\t\t\t}\n"
+	"\t\t\t\tif (provisional !== null && provisional.known) state.champion = provisional.name;\n"
 	"\t\t\t});\n"
 	"\t\t}\n"
 	"\n"
+	"\t\tconst controller = {\n"
+	"\t\t\tsection: section,\n"
+	"\t\t\tupdate: update,\n"
+	"\t\t\trefresh: update,\n"
+	"\t\t\toutcome: () => state,\n"
+	"\t\t\tsetNames: list => {\n"
+	"\t\t\t\tif (list.length !== teamCount) console.warn('Fixtura: la cantidad de equipos de ' + section.dataset.tournament + ' cambió; recompilar el programa.');\n"
+	"\t\t\t\tlist.slice(0, teamCount).forEach((name, k) => names[k] = name);\n"
+	"\t\t\t}\n"
+	"\t\t};\n"
 	"\t\tsection.addEventListener('input', () => {\n"
-	"\t\t\tupdate();\n"
+	"\t\t\tcontroller.refresh();\n"
 	"\t\t\ttry {\n"
 	"\t\t\t\tlocalStorage.setItem(key, JSON.stringify(inputs.map(input => input.value)));\n"
 	"\t\t\t}\n"
@@ -1849,13 +2414,124 @@ static const char * _script =
 	"\t\t\t\t}\n"
 	"\t\t\t\tcatch (error) {}\n"
 	"\t\t\t\tinputs.forEach(input => input.value = input.defaultValue);\n"
-	"\t\t\t\tupdate();\n"
+	"\t\t\t\tcontroller.refresh();\n"
 	"\t\t\t});\n"
 	"\t\t}\n"
-	"\t\tupdate();\n"
+	"\t\treturn controller;\n"
 	"\t}\n"
 	"\n"
-	"\tdocument.querySelectorAll('section.tournament').forEach(setup);\n"
+	"\t// Mirrors \"_selectorRange\" of the compiler.\n"
+	"\tconst range = (selector, count) => {\n"
+	"\t\tconst position = ([fromTop, value]) => fromTop ? value : count - value;\n"
+	"\t\tconst clamp = value => Math.min(Math.max(value, 1), count);\n"
+	"\t\tlet from = 1;\n"
+	"\t\tlet to = count;\n"
+	"\t\tif (selector.type === 'top') to = selector.count;\n"
+	"\t\telse if (selector.type === 'bottom') from = count - selector.count + 1;\n"
+	"\t\telse {\n"
+	"\t\t\tfrom = position(selector.from);\n"
+	"\t\t\tto = position(selector.to);\n"
+	"\t\t}\n"
+	"\t\treturn [clamp(from), clamp(to)];\n"
+	"\t};\n"
+	"\n"
+	"\t/**\n"
+	"\t * Moves the teams along the seasons of a federation, as the compiler does:\n"
+	"\t * each league is played by its current roster and, at the end of every\n"
+	"\t * season, the movement rules apply over the current tables.\n"
+	"\t */\n"
+	"\tfunction federation(element, controllers) {\n"
+	"\t\tconst data = JSON.parse(element.querySelector('script.federation-data').textContent);\n"
+	"\t\tconst sections = Array.from(element.querySelectorAll('section.tournament[data-year]')).filter(section => controllers.has(section));\n"
+	"\t\tconst years = Array.from(new Set(sections.map(section => +section.dataset.year))).sort((x, y) => x - y);\n"
+	"\t\tconst find = (history, name, year) => history.find(entry => entry.tournament === name && entry.year === year);\n"
+	"\t\t// Mirrors \"_rankedNames\": by the table, or by the average of points per match of the last seasons.\n"
+	"\t\tconst ranked = (history, entry, seasons) => {\n"
+	"\t\t\tconst names = entry.rows.map(row => row.name);\n"
+	"\t\t\tif (!seasons) return names;\n"
+	"\t\t\tconst past = history.filter(other => other.tournament === entry.tournament && other.year <= entry.year).slice(-seasons);\n"
+	"\t\t\tconst average = name => {\n"
+	"\t\t\t\tlet points = 0;\n"
+	"\t\t\t\tlet played = 0;\n"
+	"\t\t\t\tpast.forEach(other => other.rows.forEach(row => {\n"
+	"\t\t\t\t\tif (row.name === name) {\n"
+	"\t\t\t\t\t\tpoints += row.points;\n"
+	"\t\t\t\t\t\tplayed += row.played;\n"
+	"\t\t\t\t\t}\n"
+	"\t\t\t\t}));\n"
+	"\t\t\t\treturn played === 0 ? 0 : points / played;\n"
+	"\t\t\t};\n"
+	"\t\t\treturn names.map((name, k) => ({name: name, k: k, average: average(name)}))\n"
+	"\t\t\t\t.sort((x, y) => y.average - x.average || x.k - y.k)\n"
+	"\t\t\t\t.map(item => item.name);\n"
+	"\t\t};\n"
+	"\t\t// Mirrors \"_applyMovement\".\n"
+	"\t\tconst move = (rosters, history, year) => {\n"
+	"\t\t\tconst moves = [];\n"
+	"\t\t\tdata.rules.forEach(rule => {\n"
+	"\t\t\t\tconst origin = rosters[rule.from];\n"
+	"\t\t\t\tconst league = find(history, rule.from, year);\n"
+	"\t\t\t\tif (origin === undefined || rosters[rule.to] === undefined || league === undefined) return;\n"
+	"\t\t\t\tlet teams = [];\n"
+	"\t\t\t\tif (rule.team !== undefined) teams = [rule.team];\n"
+	"\t\t\t\telse if (rule.winner !== undefined) {\n"
+	"\t\t\t\t\tconst cup = find(history, rule.winner, year);\n"
+	"\t\t\t\t\tif (cup !== undefined && cup.champion !== null) teams = [cup.champion];\n"
+	"\t\t\t\t}\n"
+	"\t\t\t\telse if (league.rows.length !== 0) {\n"
+	"\t\t\t\t\tconst [from, to] = range(rule.selector, league.rows.length);\n"
+	"\t\t\t\t\tteams = ranked(history, league, rule.selector.average).slice(from - 1, to);\n"
+	"\t\t\t\t}\n"
+	"\t\t\t\tteams.forEach(team => {\n"
+	"\t\t\t\t\tif (origin.includes(team) && !moves.some(other => other.team === team)) moves.push({team: team, from: rule.from, to: rule.to});\n"
+	"\t\t\t\t});\n"
+	"\t\t\t});\n"
+	"\t\t\tconst next = {};\n"
+	"\t\t\tObject.keys(rosters).forEach(league => {\n"
+	"\t\t\t\tnext[league] = rosters[league].filter(team => !moves.some(other => other.team === team && other.from === league));\n"
+	"\t\t\t});\n"
+	"\t\t\tmoves.forEach(other => next[other.to].push(other.team));\n"
+	"\t\t\treturn next;\n"
+	"\t\t};\n"
+	"\t\tconst run = () => {\n"
+	"\t\t\tlet rosters = {};\n"
+	"\t\t\tObject.keys(data.rosters).forEach(league => rosters[league] = data.rosters[league].slice());\n"
+	"\t\t\tconst history = [];\n"
+	"\t\t\tyears.forEach(year => {\n"
+	"\t\t\t\tsections.filter(section => +section.dataset.year === year).forEach(section => {\n"
+	"\t\t\t\t\tconst controller = controllers.get(section);\n"
+	"\t\t\t\t\tconst name = section.dataset.tournament;\n"
+	"\t\t\t\t\tif (section.hasAttribute('data-league') && rosters[name] !== undefined) controller.setNames(rosters[name]);\n"
+	"\t\t\t\t\telse if (section.dataset.teamsFrom !== undefined) {\n"
+	"\t\t\t\t\t\tconst source = find(history, section.dataset.teamsFrom, year);\n"
+	"\t\t\t\t\t\tif (source !== undefined && source.rows.length !== 0) {\n"
+	"\t\t\t\t\t\t\tconst selector = JSON.parse(section.dataset.selector);\n"
+	"\t\t\t\t\t\t\tconst [from, to] = range(selector, source.rows.length);\n"
+	"\t\t\t\t\t\t\tcontroller.setNames(ranked(history, source, selector.average).slice(from - 1, to));\n"
+	"\t\t\t\t\t\t}\n"
+	"\t\t\t\t\t}\n"
+	"\t\t\t\t\tcontroller.update();\n"
+	"\t\t\t\t\tconst state = controller.outcome();\n"
+	"\t\t\t\t\thistory.push({tournament: name, year: year, rows: state.rows, champion: state.champion});\n"
+	"\t\t\t\t});\n"
+	"\t\t\t\trosters = move(rosters, history, year);\n"
+	"\t\t\t});\n"
+	"\t\t};\n"
+	"\t\tsections.forEach(section => controllers.get(section).refresh = run);\n"
+	"\t\trun();\n"
+	"\t}\n"
+	"\n"
+	"\tconst controllers = new Map();\n"
+	"\tdocument.querySelectorAll('section.tournament').forEach((section, index) => {\n"
+	"\t\tconst controller = setup(section, index);\n"
+	"\t\tif (controller !== null) controllers.set(section, controller);\n"
+	"\t});\n"
+	"\tdocument.querySelectorAll('section.federation').forEach(element => {\n"
+	"\t\tif (element.querySelector('script.federation-data') !== null) federation(element, controllers);\n"
+	"\t});\n"
+	"\tcontrollers.forEach(controller => {\n"
+	"\t\tif (controller.refresh === controller.update) controller.update();\n"
+	"\t});\n"
 	"})();\n";
 
 static void _genFooter() {

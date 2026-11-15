@@ -11,7 +11,7 @@ federation AFA {
         schedule starting february 1 every sunday
         use points Standard
         zone Campeon champion first
-        zone Descenso relegate bottom 1 by average of last 3 seasons
+        zone Descenso relegate bottom 2
     }
 
     league Nacional tier 2 {

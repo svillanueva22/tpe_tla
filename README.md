@@ -20,7 +20,7 @@ La especificación del lenguaje se encuentra en [`doc/Especificación_Fixtura_TL
 
 * [Docker v28.3.2](https://www.docker.com/)
 
-No se utilizan librerías externas: la salida es HTML + CSS plano y no requiere ningún runtime más allá de un navegador web.
+No se utilizan librerías externas: la salida es HTML + CSS + JavaScript embebido (sin dependencias) y no requiere ningún runtime más allá de un navegador web.
 
 ## Configuración
 
@@ -100,7 +100,7 @@ docker compose down
 
 ## Salida generada
 
-El compilador emite un único documento HTML con estilos embebidos. Por cada declaración:
+El compilador emite un único documento HTML con estilos y un script embebidos. Por cada declaración:
 
 * **Torneo todos contra todos**: fixture por fechas (algoritmo de Berger; con equipo libre si la cantidad es impar, y a una o dos ruedas), y tabla de posiciones con las zonas coloreadas (campeón, ascenso, descenso y clasificación).
 * **Eliminación directa**: cuadro de llaves. Si la cantidad de equipos no es potencia de 2, los primeros pasan directo (_bye_).
@@ -108,6 +108,8 @@ El compilador emite un único documento HTML con estilos embebidos. Por cada dec
 * **Federación**: el calendario se evalúa año por año (`every`, `otherwise`, `if`/`else`, ciclos y `host` con años explícitos o relativos) y se genera cada torneo en las temporadas que lo albergan, resolviendo las fechas sin año. Además, se listan las reglas de ascenso y descenso.
 
 Las fechas de cada jornada se calculan a partir del `schedule` (cada N días, cada N semanas, o ciertos días de la semana). Si el torneo declara `results`, la tabla de posiciones se calcula con ellos (según `points` y `tiebreak`, o los _templates_ usados), y en las llaves avanzan los ganadores (por global y, si hace falta, por penales). Los equipos tomados de otro torneo (`teams from`) se muestran según su posición (e.g., «2° Nacional»), ya que se definen recién al finalizar ese torneo.
+
+El documento es interactivo: cada partido del fixture y cada llave tiene campos para cargar goles (y penales), precargados con los `results` declarados. Al escribir un resultado se recalculan los puntos y el orden de las tablas (según `points` y `tiebreak`; las zonas se mantienen por posición), al completarse un grupo sus clasificados ocupan su lugar en las llaves, y los ganadores avanzan hasta el campeón. Los resultados cargados se guardan en el `localStorage` del navegador, y el botón «Restaurar resultados declarados» vuelve a los del programa.
 
 ## Casos de prueba
 
