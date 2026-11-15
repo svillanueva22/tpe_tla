@@ -14,12 +14,7 @@ static void _log(const Logger * logger, const LoggingLevel loggingLevel, const c
 	if (logger->loggingLevel <= loggingLevel) {
 		const char * context = _toContextString(loggingLevel);
 		char * effectiveFormat = concatenate(6, context, "[", logger->name, "] ", format, "\n");
-		if (ERROR <= loggingLevel) {
-			_logInStream(stderr, effectiveFormat, arguments);
-		}
-		else {
-			_logInStream(stdout, effectiveFormat, arguments);
-		}
+		_logInStream(stderr, effectiveFormat, arguments);
 		free(effectiveFormat);
 	}
 }
