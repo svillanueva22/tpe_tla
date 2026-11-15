@@ -2,71 +2,86 @@
 
 [![✗](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml/badge.svg?branch=production)](https://github.com/svillanueva22/tpe_tla/actions/workflows/pipeline.yaml)
 
-# Flex-Bison-Compiler
+# Fixtura
 
-A base compiler example, developed with Flex and Bison.
+Compilador de **Fixtura**, un DSL para declarar torneos de fútbol (ligas, copas y federaciones con calendarios plurianuales), desarrollado con Flex y Bison sobre la base de [Flex-Bison-Compiler](https://github.com/agustin-golmar/Flex-Bison-Compiler). El compilador valida el programa (análisis léxico, sintáctico y semántico) y genera un **documento HTML** autocontenido con el fixture de cada torneo.
 
-* [Requirements](#requirements)
-* [Configuration](#configuration)
-* [Commands](#commands)
+La especificación del lenguaje se encuentra en [`doc/Especificación_Fixtura_TLA.pdf`](doc/Especificación_Fixtura_TLA.pdf).
+
+* [Requerimientos](#requerimientos)
+* [Configuración](#configuración)
+* [Comandos](#comandos)
+* [Salida generada](#salida-generada)
+* [Casos de prueba](#casos-de-prueba)
 * [CI/CD](#cicd)
-* [Recommended Extensions](#recommended-extensions)
+* [Extensiones recomendadas](#extensiones-recomendadas)
 
-## Requirements
+## Requerimientos
 
 * [Docker v28.3.2](https://www.docker.com/)
 
-## Configuration
+No se utilizan librerías externas: la salida es HTML + CSS plano y no requiere ningún runtime más allá de un navegador web.
 
-Set the following environment variables to control and configure the behaviour of the application:
+## Configuración
 
-| Name                  | Default | Description                                                                                                                                                     |
-| :-------------------- | :-----: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ENVIRONMENT`         | `Local` | The active environment name. The available environments are: `Local`, `Development` and `Production`.                                                           |
-| `LOG_IGNORED_LEXEMES` | `true`  | When `true`, logs all of the ignored lexemes found with Flex at `DEBUGGING` level. To remove those logs from the console output set it to `false`.              |
-| `LOGGING_LEVEL`       | `ALL`   | The minimum level to log in the console output. From lower to higher, the available levels are: `ALL`, `DEBUGGING`, `INFORMATION`, `WARNING`, `ERROR` and `CRITICAL`|
+Las siguientes variables de entorno controlan el comportamiento de la aplicación:
 
-_Docker Compose_ can read the variables from an `.env` file too (see `compose.yaml` file).
+| Nombre                | Default | Descripción                                                                                                                                                  |
+| :-------------------- | :-----: | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ENVIRONMENT`         | `Local` | El nombre del entorno activo. Los entornos disponibles son: `Local`, `Development` y `Production`.                                                           |
+| `LOG_IGNORED_LEXEMES` | `true`  | Si es `true`, loguea todos los lexemas ignorados por Flex con nivel `DEBUGGING`. Para quitarlos de la consola, usar `false`.                                  |
+| `LOGGING_LEVEL`       | `ALL`   | El nivel mínimo de log en consola. De menor a mayor: `ALL`, `DEBUGGING`, `INFORMATION`, `WARNING`, `ERROR` y `CRITICAL`.                                     |
 
-## Commands
+_Docker Compose_ también puede leer las variables desde un archivo `.env` (ver `compose.yaml`).
 
-### Start
+> [!IMPORTANT]
+> Los logs de nivel inferior a `ERROR` se escriben en la salida estándar, junto con el HTML. Para obtener un HTML limpio, compilar con `LOGGING_LEVEL=ERROR` (los errores van a la salida de error estándar).
 
-Rises an ephemeral container, ready to start development:
+## Comandos
+
+### Iniciar
+
+Levanta un contenedor efímero, listo para desarrollar:
 
 ```bash
 docker compose run --rm compiler
 ```
 
-### Build
+Todos los comandos siguientes se ejecutan dentro del contenedor.
 
-Builds or rebuilds the entire compiler:
+### Construir
+
+Construye (o reconstruye) el compilador completo:
 
 ```bash
 src/main/bash/build.sh
 ```
 
-### Run
-
-Compiles a program:
+### Compilar un programa
 
 ```bash
-src/main/bash/run.sh <program>
+LOGGING_LEVEL=ERROR src/main/bash/run.sh <programa> > <salida>.html
 ```
 
-where `<program>` is the path to the file that represents its entry-point.
+donde `<programa>` es la ruta al archivo fuente. Por ejemplo:
 
-### Test
+```bash
+LOGGING_LEVEL=ERROR src/main/bash/run.sh src/test/c/accept/93-example-afa > afa.html
+```
 
-Executes every available unit-test under `src/test/c` folder:
+Luego, abrir el archivo `.html` con cualquier navegador. El código de salida es `0` si el programa es correcto, y distinto de `0` si se rechaza (los errores léxicos, sintácticos o semánticos se informan en la salida de error estándar).
+
+### Testear
+
+Ejecuta todos los casos de prueba de la carpeta `src/test/c`:
 
 ```bash
 src/main/bash/test.sh
 ```
 
-### Stop
+### Detener
 
-Logout, destroy the ephemeral containers and shutdowns the cluster:
+Sale del contenedor, destruye los contenedores efímeros y apaga el clúster:
 
 ```bash
 exit
@@ -75,19 +90,38 @@ docker compose down
 
 ### Docker
 
-| Command                                 | Description                                             |
-| :-------------------------------------- | :------------------------------------------------------ |
-| `docker builder prune --all`            | Removes all builds and complete build cache.            |
-| `docker compose --progress=plain build` | Forces a build or rebuild of the images in the cluster. |
-| `docker image prune`                    | Removes all of the dangling images from Docker.         |
-| `docker network prune`                  | Removes unused networks from Docker.                    |
-| `docker volume prune`                   | Removes unused volumes from Docker.                     |
+| Comando                                 | Descripción                                                  |
+| :-------------------------------------- | :----------------------------------------------------------- |
+| `docker builder prune --all`            | Elimina todos los builds y la caché de construcción.         |
+| `docker compose --progress=plain build` | Fuerza la construcción o reconstrucción de las imágenes.     |
+| `docker image prune`                    | Elimina las imágenes huérfanas (_dangling_).                 |
+| `docker network prune`                  | Elimina las redes no utilizadas.                             |
+| `docker volume prune`                   | Elimina los volúmenes no utilizados.                         |
+
+## Salida generada
+
+El compilador emite un único documento HTML con estilos embebidos. Por cada declaración:
+
+* **Torneo todos contra todos**: fixture por fechas (algoritmo de Berger; con equipo libre si la cantidad es impar, y a una o dos ruedas), y tabla de posiciones con las zonas coloreadas (campeón, ascenso, descenso y clasificación).
+* **Eliminación directa**: cuadro de llaves. Si la cantidad de equipos no es potencia de 2, los primeros pasan directo (_bye_).
+* **Grupos y eliminación directa**: fixture de la fase de grupos, tabla por grupo y cuadro eliminatorio cruzado (e.g., «1° Grupo A» contra «2° Grupo B»).
+* **Federación**: el calendario se evalúa año por año (`every`, `otherwise`, `if`/`else`, ciclos y `host` con años explícitos o relativos) y se genera cada torneo en las temporadas que lo albergan, resolviendo las fechas sin año. Además, se listan las reglas de ascenso y descenso.
+
+Las fechas de cada jornada se calculan a partir del `schedule` (cada N días, cada N semanas, o ciertos días de la semana). Si el torneo declara `results`, la tabla de posiciones se calcula con ellos (según `points` y `tiebreak`, o los _templates_ usados), y en las llaves avanzan los ganadores (por global y, si hace falta, por penales). Los equipos tomados de otro torneo (`teams from`) se muestran según su posición (e.g., «2° Nacional»), ya que se definen recién al finalizar ese torneo.
+
+## Casos de prueba
+
+| Carpeta                     | Contenido                                                           |
+| :-------------------------- | :------------------------------------------------------------------ |
+| `src/test/c/accept`         | Programas válidos: el compilador debe aceptarlos.                   |
+| `src/test/c/reject`         | Programas léxica o sintácticamente inválidos: deben rechazarse.     |
+| `src/test/c/semantic/reject`| Programas sintácticamente válidos pero semánticamente incorrectos.  |
 
 ## CI/CD
 
-To trigger an automatic integration on every push or PR (_Pull Request_), you must activate _GitHub Actions_ in the _Settings_ tab. Use the following configuration:
+Para disparar una integración automática en cada _push_ o PR (_Pull Request_), se debe activar _GitHub Actions_ en la pestaña _Settings_, con la siguiente configuración:
 
-| Key                                                        | Value                                               |
+| Clave                                                      | Valor                                               |
 | :--------------------------------------------------------- | :-------------------------------------------------- |
 | `Actions permissions`                                      | `Allow all actions and reusable workflows`          |
 | `Allow GitHub Actions to create and approve pull requests` | `false`                                             |
@@ -95,7 +129,7 @@ To trigger an automatic integration on every push or PR (_Pull Request_), you mu
 | `Fork pull request workflows from outside collaborators`   | `Require approval for all outside collaborators`    |
 | `Workflow permissions`                                     | `Read repository contents and packages permissions` |
 
-## Recommended Extensions
+## Extensiones recomendadas
 
 * [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
 * [CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools)

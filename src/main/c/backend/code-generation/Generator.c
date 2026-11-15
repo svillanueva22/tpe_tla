@@ -873,12 +873,18 @@ static void _genRoundRobin(char ** teams, const int size, const int groups, cons
 					}
 					const char * home = groupTeams[leg == 0 ? pairing.home : pairing.away];
 					const char * away = groupTeams[leg == 0 ? pairing.away : pairing.home];
+					Result * result = _findResult(results, home, away);
+					if (result == NULL && legs == LEGS_SINGLE && (result = _findResult(results, away, home)) != NULL) {
+						// With a single leg, the declared result may swap who plays at home.
+						home = result->home;
+						away = result->away;
+					}
 					_output("<tr>");
 					if (1 < groups) {
 						_output("<td class=\"group\">%r</td>", (char[]) {_groupLetter(group), '\0'});
 					}
 					_output("<td class=\"home\">%s</td>", home);
-					_genScore(_findResult(results, home, away));
+					_genScore(result);
 					_output("<td class=\"away\">%s</td></tr>", away);
 				}
 			}
