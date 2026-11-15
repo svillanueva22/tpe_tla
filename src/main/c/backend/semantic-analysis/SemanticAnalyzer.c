@@ -143,11 +143,20 @@ static bool _selectorToRange(Selector * sel, int teamCount, int * outFrom, int *
 }
 
 /* ========================================================================== */
-/* HELPER: days in month (non-leap year for simplicity; Feb is 28).           */
+/* HELPER: zones ranked by the table, or by the same average, share positions.*/
+/* ========================================================================== */
+
+static bool _sameRanking(Ranking * a, Ranking * b) {
+	if (a->type != b->type) return false;
+	return a->type == RANKING_TABLE || a->seasons == b->seasons;
+}
+
+/* ========================================================================== */
+/* HELPER: days in month for a yearless date (Feb is 29: it may be leap).     */
 /* ========================================================================== */
 
 static int _daysInMonth(int month) {
-	static const int days[] = {0,31,28,31,30,31,30,31,31,30,31,30,31};
+	static const int days[] = {0,31,29,31,30,31,30,31,31,30,31,30,31};
 	if (month < 1 || month > 12) return 0;
 	return days[month];
 }
@@ -272,6 +281,12 @@ static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState
 		state->semanticError = true;
 	}
 
+	/* [23] invalid yearless date (e.g. february 30) */
+	if (sch != NULL && sch->start.year == 0 && (sch->start.day < 1 || sch->start.day > _daysInMonth(sch->start.month))) {
+		logError(_logger, "Semantic error [23]: invalid yearless date --%02d-%02d in tournament \"%s\".", sch->start.month, sch->start.day, t->name);
+		state->semanticError = true;
+	}
+
 	/* [21] yearless date (year == 0) inside federation */
 	if (sch != NULL && insideFederation && sch->start.year != 0) {
 		logError(_logger, "Semantic error [21]: schedule date with explicit year used inside a federation in tournament \"%s\".", t->name);
@@ -334,22 +349,23 @@ static void _analyzeTournament(Tournament * t, ScopeStack * stack, CompilerState
 				}
 			}
 
-			/* [05] overlapping same-kind zones (pairwise) */
+			/* [05] overlapping zones over the same ranking (pairwise). The champion
+			 * is a title, so it may overlap other zones (e.g. it also promotes). */
 			if (zones->size > 1) {
 				int idx = 0;
 				int from[zones->size], to[zones->size];
-				ZoneKind kinds[zones->size];
+				Ranking * rankings[zones->size];
 				for (ListNode * zn = zones->first; zn != NULL; zn = zn->next) {
 					Zone * z = zn->element;
-					if (_selectorToRange(z->selector, teamCount, &from[idx], &to[idx])) {
-						kinds[idx] = z->kind;
+					if (z->kind != ZONE_CHAMPION && _selectorToRange(z->selector, teamCount, &from[idx], &to[idx])) {
+						rankings[idx] = z->selector->ranking;
 						idx++;
 					}
 				}
 				for (int a = 0; a < idx; ++a) {
 					for (int b = a + 1; b < idx; ++b) {
-						if (kinds[a] == kinds[b] && from[a] <= to[b] && from[b] <= to[a]) {
-							logError(_logger, "Semantic error [05]: overlapping same-kind zones in tournament \"%s\".", t->name);
+						if (_sameRanking(rankings[a], rankings[b]) && from[a] <= to[b] && from[b] <= to[a]) {
+							logError(_logger, "Semantic error [05]: overlapping zones in tournament \"%s\".", t->name);
 							state->semanticError = true;
 						}
 					}
